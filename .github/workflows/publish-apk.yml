@@ -1,0 +1,28 @@
+name: Publish APK
+
+on:
+  push:
+    paths:
+      - "release-payload/v1.7.0/READY"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild APK
+        run: |
+          mkdir -p releases/v1.7.0
+          cat release-payload/v1.7.0/part-* | base64 -d > releases/v1.7.0/WeType-Swipe-v1.7.0.apk
+          echo "745afacdd84cdd1caacad1c26450b52987b473b5431614d553b33556f8cae33c  releases/v1.7.0/WeType-Swipe-v1.7.0.apk" | sha256sum -c -
+      - name: Commit APK
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases/v1.7.0/WeType-Swipe-v1.7.0.apk
+          git commit -m "release: publish v1.7.0 APK" || exit 0
+          git push
