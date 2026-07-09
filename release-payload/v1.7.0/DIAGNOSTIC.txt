@@ -1,18 +1,18 @@
 Part sizes:
  7496 release-payload/v1.7.0/part-00
  7500 release-payload/v1.7.0/part-01
-14000 release-payload/v1.7.0/part-02
+ 7500 release-payload/v1.7.0/part-02
  6568 release-payload/v1.7.0/part-03
  7088 release-payload/v1.7.0/part-04
-42652 total
+36152 total
 
 Part SHA-256:
 8aabd94d6955ee24c7769bae2887124ad27199415daa3e311fbe37d99daae433  release-payload/v1.7.0/part-00
 7eb2635b9a0825b0f33c3d62f9ed82514b916af489fe526de3187998fbb456c4  release-payload/v1.7.0/part-01
-49e2be70fcc511ebd0da3d81cf029056edd90048ecfbf1c37552ff7c4c6e3f10  release-payload/v1.7.0/part-02
+fe3dc5bbe1df435dd8578ebfa0686785b9b022160168fc2c25603235caa4ef4b  release-payload/v1.7.0/part-02
 ed68d16afc5b137a83f1c6ca344ff513dbdbcff50d8dbe51c49ca4bdec06cf77  release-payload/v1.7.0/part-03
 978d4e996062149355be4dd6babf569802558fd9fbd547958c2b22a128abf1c5  release-payload/v1.7.0/part-04
 
 Rebuilt APK:
-31989 releases/v1.7.0/WeType-Swipe-v1.7.0.apk
-c323d253ce72bdd84829ee80632d9caaa3ef2f9d162c478dd3bec904d281d637  releases/v1.7.0/WeType-Swipe-v1.7.0.apk
+27114 releases/v1.7.0/WeType-Swipe-v1.7.0.apk
+8e4b71b927180941ebb7c69e598fe008ad47d97b48ead78f9e9bcd629ab4aad5  releases/v1.7.0/WeType-Swipe-v1.7.0.apk
