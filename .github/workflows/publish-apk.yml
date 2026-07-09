@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - "release-payload/v1.7.0/READY"
+  pull_request:
+    paths:
+      - "release-payload/v1.7.0/READY"
   workflow_dispatch:
 
 permissions:
@@ -14,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - name: Rebuild APK
         run: |
           mkdir -p releases/v1.7.0
