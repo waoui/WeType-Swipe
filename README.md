@@ -37,7 +37,9 @@
 
 ## 下载
 
-最新版 APK：[`releases/v1.7.0/WeType-Swipe-v1.7.0.apk`](releases/v1.7.0/WeType-Swipe-v1.7.0.apk)
+最新版 APK：[下载 WeType Swipe v1.7.0](https://github.com/waoui/WeType-Swipe/releases/download/v1.7.0/WeType_Swipe_LSPosed_v1.7.0.apk)
+
+Release 页面：[查看 v1.7.0 发布说明](https://github.com/waoui/WeType-Swipe/releases/tag/v1.7.0)
 
 ## 已测试环境
 
