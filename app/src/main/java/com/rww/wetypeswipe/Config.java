@@ -14,9 +14,19 @@ final class Config {
     static final String KEY_PASTE = "paste";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
+    static final String KEY_T9_THRESHOLD = "t9_threshold";
     static final String KEY_VIBRATION = "vibration";
     static final String KEY_DIAGNOSTIC = "diagnostic";
     static final String KEY_HIDE_ICON = "hide_icon";
+
+    static final String KEY_T9_2 = "t9_key_2";
+    static final String KEY_T9_3 = "t9_key_3";
+    static final String KEY_T9_4 = "t9_key_4";
+    static final String KEY_T9_5 = "t9_key_5";
+    static final String KEY_T9_6 = "t9_key_6";
+    static final String KEY_T9_7 = "t9_key_7";
+    static final String KEY_T9_8 = "t9_key_8";
+    static final String KEY_T9_9 = "t9_key_9";
 
     static final String DIAG_STATUS = "diag_status";
     static final String DIAG_LAST_KEY = "diag_last_key";
@@ -31,15 +41,21 @@ final class Config {
     static final int ACTION_PASTE = 4;
     static final int ACTION_DISABLE = 5;
 
+    static final String[] ACTION_LABELS = {
+            "未绑定", "全选", "剪切", "复制", "粘贴", "禁用下滑"
+    };
+
     String selectAll = "z";
     String cut = "x";
     String copy = "c";
     String paste = "v";
     String disabledKeys = "";
     int thresholdDp = 12;
+    int t9ThresholdDp = 20;
     boolean vibration = true;
     boolean diagnostic = false;
 
+    final int[] t9Actions = new int[10];
     private final int[] actionMap = new int[26];
     private boolean hasAnyBinding;
 
@@ -56,6 +72,14 @@ final class Config {
             if (action != ACTION_NONE) {
                 hasAnyBinding = true;
                 break;
+            }
+        }
+        if (!hasAnyBinding) {
+            for (int digit = 2; digit <= 9; digit++) {
+                if (validAction(t9Actions[digit]) != ACTION_NONE) {
+                    hasAnyBinding = true;
+                    break;
+                }
             }
         }
     }
@@ -84,13 +108,51 @@ final class Config {
         return c >= 'a' && c <= 'z' ? c - 'a' : -1;
     }
 
-    int actionFor(String key) {
+    int actionFor(String key, boolean t9) {
+        if (t9) {
+            if (key == null || key.length() != 1) return ACTION_NONE;
+            char c = key.charAt(0);
+            if (c < '2' || c > '9') return ACTION_NONE;
+            return validAction(t9Actions[c - '0']);
+        }
         int index = indexOfKey(key);
         return index >= 0 ? actionMap[index] : ACTION_NONE;
     }
 
     boolean hasAnyBinding() {
         return hasAnyBinding;
+    }
+
+    static int validAction(int action) {
+        return action >= ACTION_NONE && action <= ACTION_DISABLE ? action : ACTION_NONE;
+    }
+
+    static String t9PrefKey(int digit) {
+        switch (digit) {
+            case 2: return KEY_T9_2;
+            case 3: return KEY_T9_3;
+            case 4: return KEY_T9_4;
+            case 5: return KEY_T9_5;
+            case 6: return KEY_T9_6;
+            case 7: return KEY_T9_7;
+            case 8: return KEY_T9_8;
+            case 9: return KEY_T9_9;
+            default: throw new IllegalArgumentException("digit must be 2..9");
+        }
+    }
+
+    static String t9Label(int digit) {
+        switch (digit) {
+            case 2: return "2 / ABC";
+            case 3: return "3 / DEF";
+            case 4: return "4 / GHI";
+            case 5: return "5 / JKL";
+            case 6: return "6 / MNO";
+            case 7: return "7 / PQRS";
+            case 8: return "8 / TUV";
+            case 9: return "9 / WXYZ";
+            default: return String.valueOf(digit);
+        }
     }
 
     static int menuIdFor(int action) {
@@ -102,13 +164,7 @@ final class Config {
     }
 
     static String actionName(int action) {
-        switch (action) {
-            case ACTION_SELECT_ALL: return "全选";
-            case ACTION_CUT: return "剪切";
-            case ACTION_COPY: return "复制";
-            case ACTION_PASTE: return "粘贴";
-            case ACTION_DISABLE: return "禁用下滑";
-            default: return "未绑定";
-        }
+        int checked = validAction(action);
+        return ACTION_LABELS[checked];
     }
 }
