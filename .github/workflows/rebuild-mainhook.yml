@@ -17,7 +17,7 @@ jobs:
         run: |
           mkdir -p app/src/main/java/com/rww/wetypeswipe
           cat .source-build/MainHook.part-* > app/src/main/java/com/rww/wetypeswipe/MainHook.java
-          echo "a5a7bd4e026bdc86bff9c26d8b7833508de49a533c33392502b362d22b5e896f  app/src/main/java/com/rww/wetypeswipe/MainHook.java" | sha256sum -c -
+          echo "0e1862dcf5a213750d9c5405a2882b98a0a64bba0e8694493bef3e596e75357b  app/src/main/java/com/rww/wetypeswipe/MainHook.java" | sha256sum -c -
       - name: Commit corrected source
         run: |
           rm -rf .source-build
