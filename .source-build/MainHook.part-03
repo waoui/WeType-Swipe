@@ -1,0 +1,143 @@
+                    && (tail.endsWith("_" + last) || tail.endsWith("key" + last))) {
+                return KeyInfo.alpha(String.valueOf(last));
+            }
+        }
+
+        boolean t9Hint = text.contains("t9") || text.contains("nine")
+                || isT9Context(keyboard, button, keyData);
+        if (t9Hint) {
+            for (int i = text.length() - 1; i >= 0; i--) {
+                char c = text.charAt(i);
+                if (c >= '2' && c <= '9') return KeyInfo.t9(String.valueOf(c));
+            }
+        }
+        return null;
+    }
+
+    private static boolean isT9Context(Object... values) {
+        for (Object value : values) {
+            String name = className(value);
+            if (name.contains("t9") || name.contains("nine")) return true;
+        }
+        return false;
+    }
+
+    private static String className(Object value) {
+        return value == null ? "" : value.getClass().getName().toLowerCase(Locale.ROOT);
+    }
+
+    private Object invoke(Object target, String name, Object... args) {
+        if (target == null) return null;
+        try {
+            Class<?>[] parameterTypes = new Class<?>[args.length];
+            for (int i = 0; i < args.length; i++) {
+                Object arg = args[i];
+                if (arg instanceof MotionEvent) parameterTypes[i] = MotionEvent.class;
+                else if (arg instanceof Boolean) parameterTypes[i] = boolean.class;
+                else if (arg instanceof Integer) parameterTypes[i] = int.class;
+                else parameterTypes[i] = arg == null ? Object.class : arg.getClass();
+            }
+            String cacheKey = target.getClass().getName() + '#' + name + signature(parameterTypes);
+            Method method = methodCache.get(cacheKey);
+            if (method == null) {
+                method = findMethod(target.getClass(), name, parameterTypes);
+                if (method == null) return null;
+                Method previous = methodCache.putIfAbsent(cacheKey, method);
+                if (previous != null) method = previous;
+            }
+            return method.invoke(target, args);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String signature(Class<?>[] types) {
+        StringBuilder value = new StringBuilder(types.length * 12);
+        for (Class<?> type : types) value.append(':').append(type.getName());
+        return value.toString();
+    }
+
+    private static Method findMethod(Class<?> type, String name, Class<?>[] parameterTypes) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            try {
+                Method method = current.getDeclaredMethod(name, parameterTypes);
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException ignored) {}
+        }
+        return null;
+    }
+
+    private static final class KeyInfo {
+        final String key;
+        final String display;
+        final boolean t9;
+
+        private KeyInfo(String key, String display, boolean t9) {
+            this.key = key;
+            this.display = display;
+            this.t9 = t9;
+        }
+
+        static KeyInfo alpha(String key) {
+            return new KeyInfo(key, key.toUpperCase(Locale.ROOT), false);
+        }
+
+        static KeyInfo t9(String digit) {
+            return new KeyInfo(digit, "九宫格 " + Config.t9Label(digit.charAt(0) - '0'), true);
+        }
+    }
+
+    private void performAction(Context context, int action, String key) {
+        String actionName = Config.actionName(action);
+        try {
+            InputMethodService ime = imeRef.get();
+            if (ime == null) ime = findIme(context);
+            if (ime == null) {
+                reportAlways(context, "动作失败：未取得输入法服务", key, actionName, null);
+                return;
+            }
+            imeRef = new WeakReference<>(ime);
+
+            EditorInfo editorInfo = ime.getCurrentInputEditorInfo();
+            if (editorInfo != null && isPassword(editorInfo.inputType)) {
+                reportAlways(context, "密码输入框已禁用快捷操作", key, actionName, null);
+                return;
+            }
+
+            InputConnection connection = ime.getCurrentInputConnection();
+            if (connection == null) {
+                reportAlways(context, "动作失败：当前没有输入连接", key, actionName, null);
+                return;
+            }
+
+            boolean success = performMenuAction(ime, connection, Config.menuIdFor(action));
+            if (success) reportDebug(context, actionName + "执行成功", key, actionName, null);
+            else reportAlways(context, actionName + "执行失败", key, actionName, "目标输入框不支持该动作");
+        } catch (Throwable throwable) {
+            logError("action failed", throwable);
+            reportAlways(context, actionName + "执行异常", key, actionName, String.valueOf(throwable));
+        }
+    }
+
+    private boolean performMenuAction(InputMethodService ime, InputConnection connection, int menuId) {
+        if (menuId == 0) return false;
+        try {
+            if (connection.performContextMenuAction(menuId)) return true;
+        } catch (Throwable ignored) {}
+
+        try {
+            Method method = findMethod(ime.getClass(), "performContextMenuAction", new Class<?>[]{int.class});
+            if (method != null) {
+                Object result = method.invoke(ime, menuId);
+                if (!(result instanceof Boolean) || (Boolean) result) return true;
+            }
+        } catch (Throwable ignored) {}
+        return fallbackMenuAction(ime, connection, menuId);
+    }
+
+    private static boolean fallbackMenuAction(InputMethodService ime, InputConnection connection, int menuId) {
+        try {
+            if (menuId == android.R.id.selectAll) {
+                ExtractedText text = getFullText(connection);
+                return text != null && text.text != null
