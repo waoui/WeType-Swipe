@@ -1,0 +1,28 @@
+name: Rebuild v1.8 MainHook source
+
+on:
+  push:
+    paths:
+      - ".source-build/READY"
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild and verify MainHook.java
+        run: |
+          mkdir -p app/src/main/java/com/rww/wetypeswipe
+          cat .source-build/MainHook.part-* > app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          echo "a5a7bd4e026bdc86bff9c26d8b7833508de49a533c33392502b362d22b5e896f  app/src/main/java/com/rww/wetypeswipe/MainHook.java" | sha256sum -c -
+      - name: Commit corrected source
+        run: |
+          rm -rf .source-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/rww/wetypeswipe/MainHook.java .source-build
+          git commit -m "fix: restore exact v1.8.0 MainHook source"
+          git push
