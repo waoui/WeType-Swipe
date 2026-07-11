@@ -1,0 +1,144 @@
+                        && connection.setSelection(0, text.startOffset + text.text.length());
+            }
+            if (menuId == android.R.id.copy || menuId == android.R.id.cut) {
+                CharSequence selected = connection.getSelectedText(0);
+                if (selected == null || selected.length() == 0) return false;
+                ClipboardManager clipboard = (ClipboardManager) ime.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (clipboard == null) return false;
+                clipboard.setPrimaryClip(ClipData.newPlainText("text", selected));
+                return menuId != android.R.id.cut || connection.commitText("", 1);
+            }
+            if (menuId == android.R.id.paste) {
+                ClipboardManager clipboard = (ClipboardManager) ime.getSystemService(Context.CLIPBOARD_SERVICE);
+                if (clipboard == null || !clipboard.hasPrimaryClip()
+                        || clipboard.getPrimaryClip() == null
+                        || clipboard.getPrimaryClip().getItemCount() == 0) return false;
+                CharSequence text = clipboard.getPrimaryClip().getItemAt(0).coerceToText(ime);
+                return text != null && connection.commitText(text, 1);
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static ExtractedText getFullText(InputConnection connection) {
+        try {
+            ExtractedTextRequest request = new ExtractedTextRequest();
+            request.hintMaxChars = 1_000_000;
+            request.hintMaxLines = 100_000;
+            return connection.getExtractedText(request, 0);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static InputMethodService findIme(Context context) {
+        Context current = context;
+        for (int i = 0; i < 12 && current != null; i++) {
+            if (current instanceof InputMethodService) return (InputMethodService) current;
+            if (current instanceof ContextWrapper) {
+                Context next = ((ContextWrapper) current).getBaseContext();
+                if (next == current) break;
+                current = next;
+            } else break;
+        }
+        return null;
+    }
+
+    private static boolean isPassword(int inputType) {
+        int inputClass = inputType & InputType.TYPE_MASK_CLASS;
+        int variation = inputType & InputType.TYPE_MASK_VARIATION;
+        if (inputClass == InputType.TYPE_CLASS_TEXT) {
+            return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    || variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                    || variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+        }
+        return inputClass == InputType.TYPE_CLASS_NUMBER
+                && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+    }
+
+    private void reportDebug(Context context, String status, String key, String action, String error) {
+        if (!cachedConfig.diagnostic) return;
+        reportAlways(context, status, key, action, error);
+    }
+
+    private void reportAlways(Context context, String status, String key, String action, String error) {
+        if (context == null) context = contextRef.get();
+        if (context == null) return;
+        try {
+            Intent intent = new Intent(Config.ACTION_DIAGNOSTIC);
+            intent.setPackage(MODULE);
+            if (status != null) intent.putExtra(Config.DIAG_STATUS, status);
+            if (key != null) intent.putExtra(Config.DIAG_LAST_KEY, key.toUpperCase(Locale.ROOT));
+            if (action != null) intent.putExtra(Config.DIAG_LAST_ACTION, action);
+            intent.putExtra(Config.DIAG_LAST_ERROR, error == null ? "" : error);
+            context.sendBroadcast(intent);
+        } catch (Throwable throwable) {
+            logError("diagnostic broadcast failed", throwable);
+        }
+    }
+
+    private static int dp(View view, int value) {
+        return Math.max(1, Math.round(value * view.getResources().getDisplayMetrics().density));
+    }
+
+    private void logInfo(String message) {
+        try { log(Log.INFO, TAG, message); } catch (Throwable ignored) {}
+    }
+
+    private void logError(String message, Throwable throwable) {
+        try { log(Log.ERROR, TAG, message, throwable); } catch (Throwable ignored) {}
+    }
+
+    private static final class GestureTracker {
+        private WeakReference<View> keyboardRef = new WeakReference<>(null);
+        private float downX;
+        private float downY;
+        private float thresholdPx;
+        private String key;
+        private String displayKey;
+        private int action;
+        private boolean t9;
+        private boolean triggered;
+        private boolean active;
+
+        void begin(View keyboard, float x, float y) {
+            keyboardRef = new WeakReference<>(keyboard);
+            downX = x;
+            downY = y;
+            thresholdPx = 1f;
+            key = null;
+            displayKey = null;
+            action = Config.ACTION_NONE;
+            t9 = false;
+            triggered = false;
+            active = true;
+        }
+
+        void setBinding(View keyboard, KeyInfo keyInfo, int newAction, float threshold) {
+            if (!matches(keyboard)) return;
+            key = keyInfo == null ? null : keyInfo.key;
+            displayKey = keyInfo == null ? null : keyInfo.display;
+            action = newAction;
+            t9 = keyInfo != null && keyInfo.t9;
+            thresholdPx = Math.max(1f, threshold);
+        }
+
+        void markTriggered(View keyboard) {
+            if (matches(keyboard)) triggered = true;
+        }
+
+        void clear(View keyboard) {
+            if (!matches(keyboard)) return;
+            active = false;
+            key = null;
+            displayKey = null;
+            action = Config.ACTION_NONE;
+            t9 = false;
+            triggered = false;
+        }
+
+        boolean matches(View keyboard) {
+            return active && keyboardRef.get() == keyboard;
+        }
+    }
+}
