@@ -37,24 +37,43 @@ jobs:
           printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > signing.jks
 
       - name: 编译同签名测试包
+        id: build
+        continue-on-error: true
         shell: bash
         env:
           SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: gradle --no-daemon clean assembleRelease
+        run: |
+          set -o pipefail
+          gradle --no-daemon clean assembleRelease 2>&1 | tee build-test3.log
+
+      - name: 上传完整编译日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeType-Swipe-v1.10.0-test3-build-log
+          path: build-test3.log
+          retention-days: 7
 
       - name: 整理测试 APK
+        if: steps.build.outcome == 'success'
         run: |
           mkdir -p output
           cp app/build/outputs/apk/release/app-release.apk output/WeType_Swipe_LSPosed_v1.10.0-test3.apk
 
-      - uses: actions/upload-artifact@v4
+      - name: 上传测试 APK
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
           name: WeType-Swipe-v1.10.0-test3
           path: output/WeType_Swipe_LSPosed_v1.10.0-test3.apk
           retention-days: 7
+
+      - name: 标记编译失败
+        if: steps.build.outcome != 'success'
+        run: exit 1
 
       - if: always()
         run: rm -f signing.jks
