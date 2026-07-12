@@ -20,6 +20,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.SurroundingText;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
@@ -35,6 +36,7 @@ public final class MainHook extends XposedModule {
     private static final String TAG = "WeTypeSwipe";
     private static final String TARGET = "com.tencent.wetype";
     private static final String KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.n";
+    private static final int PARAGRAPH_CONTEXT_CHARS = 65_536;
 
     private final GestureTracker tracker = new GestureTracker();
     private final ConcurrentHashMap<String, Method> methodCache = new ConcurrentHashMap<>();
@@ -45,6 +47,9 @@ public final class MainHook extends XposedModule {
     private volatile boolean hooksInstalled;
     private volatile boolean receiverRegistered;
     private volatile boolean targetCacheLoaded;
+    private volatile int currentSelectionStart = -1;
+    private volatile int currentSelectionEnd = -1;
+    private volatile Class<?> selectionHookedClass;
     private BroadcastReceiver configReceiver;
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -55,7 +60,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.8.6 entered target package");
+            logInfo("v1.9.4 entered target package");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -78,7 +83,10 @@ public final class MainHook extends XposedModule {
         hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
                 chain -> captureIme(chain.getThisObject()));
         hookBefore(InputMethodService.class.getDeclaredMethod("onStartInput", EditorInfo.class, boolean.class),
-                chain -> captureIme(chain.getThisObject()));
+                chain -> captureStartInput(chain.getThisObject()));
+        hookAfter(InputMethodService.class.getDeclaredMethod("onUpdateSelection",
+                        int.class, int.class, int.class, int.class, int.class, int.class),
+                this::captureSelection);
 
         Method dispatchTouchEvent = View.class.getDeclaredMethod("dispatchTouchEvent", MotionEvent.class);
         dispatchTouchEvent.setAccessible(true);
@@ -133,7 +141,43 @@ public final class MainHook extends XposedModule {
 
         imeRef = new WeakReference<>(ime);
         ensureConfigSync(ime);
+        ensureConcreteSelectionHook(ime.getClass());
 
+    }
+
+    private void captureStartInput(Object object) {
+        currentSelectionStart = -1;
+        currentSelectionEnd = -1;
+        captureIme(object);
+    }
+
+    private void captureSelection(XposedInterface.Chain chain) {
+        try {
+            Object object = chain.getThisObject();
+            if (!(object instanceof InputMethodService)) return;
+            int start = ((Number) chain.getArg(2)).intValue();
+            int end = ((Number) chain.getArg(3)).intValue();
+            if (start >= 0 && end >= 0) {
+                currentSelectionStart = start;
+                currentSelectionEnd = end;
+            }
+        } catch (Throwable throwable) {
+            logError("selection tracking failed", throwable);
+        }
+    }
+
+    private synchronized void ensureConcreteSelectionHook(Class<?> imeClass) {
+        if (imeClass == null || imeClass == InputMethodService.class || selectionHookedClass == imeClass) return;
+        try {
+            Method method = findMethod(imeClass, "onUpdateSelection", new Class<?>[]{
+                    int.class, int.class, int.class, int.class, int.class, int.class});
+            if (method == null || method.getDeclaringClass() == InputMethodService.class) return;
+            hookAfter(method, this::captureSelection);
+            selectionHookedClass = imeClass;
+            logInfo("selection hook installed for " + imeClass.getName());
+        } catch (Throwable throwable) {
+            logError("concrete selection hook failed", throwable);
+        }
     }
 
     private synchronized void registerConfigReceiver(Context context) {
@@ -181,11 +225,19 @@ public final class MainHook extends XposedModule {
             config.cut = intent.getStringExtra(Config.KEY_CUT);
             config.copy = intent.getStringExtra(Config.KEY_COPY);
             config.paste = intent.getStringExtra(Config.KEY_PASTE);
+            config.paragraphStart = intent.getStringExtra(Config.KEY_PARAGRAPH_START);
+            config.paragraphEnd = intent.getStringExtra(Config.KEY_PARAGRAPH_END);
+            config.selectToParagraphStart = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_START);
+            config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);
             config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);
             if (config.selectAll == null) config.selectAll = "z";
             if (config.cut == null) config.cut = "x";
             if (config.copy == null) config.copy = "c";
             if (config.paste == null) config.paste = "v";
+            if (config.paragraphStart == null) config.paragraphStart = "";
+            if (config.paragraphEnd == null) config.paragraphEnd = "";
+            if (config.selectToParagraphStart == null) config.selectToParagraphStart = "";
+            if (config.selectToParagraphEnd == null) config.selectToParagraphEnd = "";
             if (config.disabledKeys == null) config.disabledKeys = "";
             config.thresholdDp = clamp(intent.getIntExtra(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(intent.getIntExtra(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -211,6 +263,10 @@ public final class MainHook extends XposedModule {
                     .putString(Config.KEY_CUT, config.cut)
                     .putString(Config.KEY_COPY, config.copy)
                     .putString(Config.KEY_PASTE, config.paste)
+                    .putString(Config.KEY_PARAGRAPH_START, config.paragraphStart)
+                    .putString(Config.KEY_PARAGRAPH_END, config.paragraphEnd)
+                    .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, config.selectToParagraphStart)
+                    .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, config.selectToParagraphEnd)
                     .putString(Config.KEY_DISABLED_KEYS, config.disabledKeys)
                     .putInt(Config.KEY_THRESHOLD, config.thresholdDp)
                     .putInt(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp)
@@ -238,6 +294,10 @@ public final class MainHook extends XposedModule {
             config.cut = prefs.getString(Config.KEY_CUT, "x");
             config.copy = prefs.getString(Config.KEY_COPY, "c");
             config.paste = prefs.getString(Config.KEY_PASTE, "v");
+            config.paragraphStart = prefs.getString(Config.KEY_PARAGRAPH_START, "");
+            config.paragraphEnd = prefs.getString(Config.KEY_PARAGRAPH_END, "");
+            config.selectToParagraphStart = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, "");
+            config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");
             config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");
             config.thresholdDp = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -579,10 +639,170 @@ public final class MainHook extends XposedModule {
                 return;
             }
 
-            boolean success = performMenuAction(ime, connection, Config.menuIdFor(action));
+            boolean success;
+            if (isParagraphAction(action)) {
+                success = performParagraphAction(connection, action);
+            } else {
+                success = performMenuAction(ime, connection, Config.menuIdFor(action));
+            }
             if (!success) logError(actionName + " failed: target editor rejected action", null);
         } catch (Throwable throwable) {
             logError("action failed", throwable);
+        }
+    }
+
+
+    private static boolean isParagraphAction(int action) {
+        return action == Config.ACTION_PARAGRAPH_START
+                || action == Config.ACTION_PARAGRAPH_END
+                || action == Config.ACTION_SELECT_TO_PARAGRAPH_START
+                || action == Config.ACTION_SELECT_TO_PARAGRAPH_END;
+    }
+
+    private boolean performParagraphAction(InputConnection connection, int action) {
+        try {
+            try { connection.finishComposingText(); } catch (Throwable ignored) {}
+
+            EditorSnapshot snapshot = readEditorSnapshot(connection);
+            if (snapshot == null) return false;
+
+            int paragraphStart = snapshot.left - distanceToParagraphStart(snapshot.before);
+            int paragraphEnd = snapshot.right + distanceToParagraphEnd(snapshot.after);
+            int targetStart;
+            int targetEnd;
+
+            if (action == Config.ACTION_PARAGRAPH_START) {
+                targetStart = paragraphStart;
+                targetEnd = paragraphStart;
+            } else if (action == Config.ACTION_PARAGRAPH_END) {
+                targetStart = paragraphEnd;
+                targetEnd = paragraphEnd;
+            } else if (action == Config.ACTION_SELECT_TO_PARAGRAPH_START) {
+                targetStart = paragraphStart;
+                targetEnd = snapshot.right;
+            } else if (action == Config.ACTION_SELECT_TO_PARAGRAPH_END) {
+                targetStart = snapshot.left;
+                targetEnd = paragraphEnd;
+            } else {
+                return false;
+            }
+
+            boolean success = connection.setSelection(targetStart, targetEnd);
+            if (success) {
+                currentSelectionStart = targetStart;
+                currentSelectionEnd = targetEnd;
+            }
+            return success;
+        } catch (Throwable throwable) {
+            logError("paragraph action failed", throwable);
+            return false;
+        }
+    }
+
+    private EditorSnapshot readEditorSnapshot(InputConnection connection) {
+        if (Build.VERSION.SDK_INT >= 31) {
+            try {
+                SurroundingText surrounding = connection.getSurroundingText(
+                        PARAGRAPH_CONTEXT_CHARS, PARAGRAPH_CONTEXT_CHARS, 0);
+                if (surrounding != null && surrounding.getText() != null) {
+                    String text = surrounding.getText().toString();
+                    int relativeStart = clampIndex(surrounding.getSelectionStart(), text.length());
+                    int relativeEnd = clampIndex(surrounding.getSelectionEnd(), text.length());
+                    int relativeLeft = Math.min(relativeStart, relativeEnd);
+                    int relativeRight = Math.max(relativeStart, relativeEnd);
+                    int offset = Math.max(0, surrounding.getOffset());
+                    return new EditorSnapshot(
+                            offset + relativeLeft,
+                            offset + relativeRight,
+                            text.substring(0, relativeLeft),
+                            text.substring(relativeRight),
+                            "surrounding");
+                }
+            } catch (Throwable throwable) {
+                logError("surrounding text unavailable", throwable);
+            }
+        }
+
+        int selectionStart = currentSelectionStart;
+        int selectionEnd = currentSelectionEnd;
+        if (selectionStart >= 0 && selectionEnd >= 0) {
+            try {
+                CharSequence before = connection.getTextBeforeCursor(PARAGRAPH_CONTEXT_CHARS, 0);
+                CharSequence after = connection.getTextAfterCursor(PARAGRAPH_CONTEXT_CHARS, 0);
+                if (before != null && after != null) {
+                    return new EditorSnapshot(
+                            Math.min(selectionStart, selectionEnd),
+                            Math.max(selectionStart, selectionEnd),
+                            before.toString(),
+                            after.toString(),
+                            "cursor-context");
+                }
+            } catch (Throwable throwable) {
+                logError("cursor context unavailable", throwable);
+            }
+        }
+
+        try {
+            ExtractedTextRequest request = new ExtractedTextRequest();
+            request.hintMaxChars = PARAGRAPH_CONTEXT_CHARS;
+            request.hintMaxLines = 4096;
+            ExtractedText extracted = connection.getExtractedText(request, 0);
+            if (extracted != null && extracted.text != null) {
+                String text = extracted.text.toString();
+                int relativeStart = clampIndex(extracted.selectionStart, text.length());
+                int relativeEnd = clampIndex(extracted.selectionEnd, text.length());
+                int relativeLeft = Math.min(relativeStart, relativeEnd);
+                int relativeRight = Math.max(relativeStart, relativeEnd);
+                int offset = Math.max(0, extracted.startOffset);
+                return new EditorSnapshot(
+                        offset + relativeLeft,
+                        offset + relativeRight,
+                        text.substring(0, relativeLeft),
+                        text.substring(relativeRight),
+                        "extracted-fallback");
+            }
+        } catch (Throwable throwable) {
+            logError("extracted text fallback unavailable", throwable);
+        }
+        return null;
+    }
+
+    private static int distanceToParagraphStart(String before) {
+        for (int index = before.length() - 1; index >= 0; index--) {
+            if (isLineBreak(before.charAt(index))) return before.length() - index - 1;
+        }
+        return before.length();
+    }
+
+    private static int distanceToParagraphEnd(String after) {
+        for (int index = 0; index < after.length(); index++) {
+            if (isLineBreak(after.charAt(index))) return index;
+        }
+        return after.length();
+    }
+
+    private static int clampIndex(int value, int length) {
+        if (value < 0) return 0;
+        return Math.min(value, length);
+    }
+
+    private static boolean isLineBreak(char value) {
+        return value == '\n' || value == '\r' || value == '\u2028' || value == '\u2029';
+    }
+
+    private static final class EditorSnapshot {
+        final int left;
+        final int right;
+        final String before;
+        final String after;
+        final String source;
+
+        EditorSnapshot(int left, int right, String before, String after, String source) {
+            this.left = Math.max(0, left);
+            this.right = Math.max(this.left, right);
+            this.before = before == null ? "" : before;
+            this.after = after == null ? "" : after;
+            this.source = source;
         }
     }
 

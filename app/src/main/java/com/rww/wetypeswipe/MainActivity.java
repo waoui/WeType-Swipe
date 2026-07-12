@@ -1,135 +1,99 @@
 package com.rww.wetypeswipe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
-import android.text.InputFilter;
-import android.text.InputType;
 import android.view.Gravity;
-import android.widget.ArrayAdapter;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final String LAUNCHER_ALIAS = "com.rww.wetypeswipe.LauncherAlias";
 
+    private static final int COLOR_PAGE = Color.rgb(245, 247, 250);
+    private static final int COLOR_CARD = Color.WHITE;
+    private static final int COLOR_TEXT = Color.rgb(32, 36, 43);
+    private static final int COLOR_SECONDARY = Color.rgb(101, 109, 122);
+    private static final int COLOR_DIVIDER = Color.rgb(232, 235, 240);
+    private static final int COLOR_ACCENT = Color.rgb(36, 103, 214);
+    private static final int COLOR_ACCENT_SOFT = Color.rgb(232, 240, 254);
+    private static final int COLOR_KEY_IDLE = Color.rgb(247, 249, 252);
+    private static final int COLOR_KEY_STROKE = Color.rgb(218, 223, 232);
+    private static final int COLOR_DANGER = Color.rgb(190, 55, 55);
+    private static final int COLOR_DANGER_SOFT = Color.rgb(255, 237, 237);
+
+    private static final int[] QWERTY_ACTIONS = {
+            Config.ACTION_SELECT_ALL,
+            Config.ACTION_CUT,
+            Config.ACTION_COPY,
+            Config.ACTION_PASTE,
+            Config.ACTION_PARAGRAPH_START,
+            Config.ACTION_PARAGRAPH_END,
+            Config.ACTION_SELECT_TO_PARAGRAPH_START,
+            Config.ACTION_SELECT_TO_PARAGRAPH_END
+    };
+
+    private static final String[] QWERTY_LABELS = {
+            "全选", "剪切", "复制", "粘贴",
+            "段首", "段尾", "选至段首", "选至段尾"
+    };
+
+    private static final String[] QWERTY_ROWS = {
+            "qwertyuiop",
+            "asdfghjkl",
+            "zxcvbnm"
+    };
+
+    private static final String[] T9_LETTERS = {
+            "", "", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"
+    };
+
     private SharedPreferences prefs;
-    private EditText selectAll, cut, copy, paste, disabledKeys;
-    private SeekBar threshold, t9Threshold;
-    private TextView thresholdValue, t9ThresholdValue;
+
+    private final String[] qwertyKeys = new String[QWERTY_ACTIONS.length];
+    private final TextView[] qwertyActionViews = new TextView[26];
+    private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
+    private String disabledKeys = "";
+
+    private final int[] t9Actions = new int[10];
+    private final TextView[] t9ActionViews = new TextView[10];
+    private final LinearLayout[] t9KeyViews = new LinearLayout[10];
+
+    private SeekBar threshold;
+    private SeekBar t9Threshold;
+    private TextView thresholdValue;
+    private TextView t9ThresholdValue;
     private CheckBox vibration;
     private CheckBox hideIcon;
-    private final Spinner[] t9Spinners = new Spinner[10];
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         setTitle("微信输入法下滑快捷键");
         prefs = getSharedPreferences(Config.PREFS, MODE_PRIVATE);
-
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(24));
-        scroll.addView(root);
-
-        TextView title = text("微信输入法下滑快捷键", 22);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        root.addView(title);
-
-        TextView version = text("v1.8.6 · Modern Xposed API 102 · 九宫格配置缓存同步", 13);
-        version.setPadding(0, dp(4), 0, dp(12));
-        root.addView(version);
-
-        addSection(root, "26 键配置");
-        TextView note = text(
-                "功能项填写一个 A-Z 字母，留空表示关闭。未绑定按键完全放行；禁用下滑可填写多个字母。",
-                14);
-        note.setPadding(0, 0, 0, dp(8));
-        root.addView(note);
-
-        selectAll = addSingleKeyRow(root, "全选", prefs.getString(Config.KEY_SELECT_ALL, "z"));
-        cut = addSingleKeyRow(root, "剪切", prefs.getString(Config.KEY_CUT, "x"));
-        copy = addSingleKeyRow(root, "复制", prefs.getString(Config.KEY_COPY, "c"));
-        paste = addSingleKeyRow(root, "粘贴", prefs.getString(Config.KEY_PASTE, "v"));
-        disabledKeys = addMultiKeyRow(root, "禁用下滑", prefs.getString(Config.KEY_DISABLED_KEYS, ""));
-
-        int savedThreshold = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
-        thresholdValue = text("26 键触发距离：" + savedThreshold + " dp", 16);
-        thresholdValue.setPadding(0, dp(12), 0, 0);
-        root.addView(thresholdValue);
-        threshold = addThreshold(root, savedThreshold, 6, 40, value ->
-                thresholdValue.setText("26 键触发距离：" + value + " dp"));
-
-        addSection(root, "九宫格配置");
-        TextView t9Note = text(
-                "自动识别 2–9 实体键。九宫格映射与 26 键完全独立；正常点击仍由微信输入法处理。",
-                14);
-        t9Note.setPadding(0, 0, 0, dp(8));
-        root.addView(t9Note);
-
-        ArrayAdapter<String> actionAdapter = new ArrayAdapter<>(
-                this, android.R.layout.simple_spinner_item, Config.ACTION_LABELS);
-        actionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        for (int digit = 2; digit <= 9; digit++) {
-            int action = Config.validAction(prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
-            t9Spinners[digit] = addT9Row(root, Config.t9Label(digit), actionAdapter, action);
-        }
-
-        int savedT9Threshold = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
-        t9ThresholdValue = text("九宫格触发距离：" + savedT9Threshold + " dp", 16);
-        t9ThresholdValue.setPadding(0, dp(12), 0, 0);
-        root.addView(t9ThresholdValue);
-        t9Threshold = addThreshold(root, savedT9Threshold, 10, 48, value ->
-                t9ThresholdValue.setText("九宫格触发距离：" + value + " dp"));
-
-        addSection(root, "通用设置");
-
-        vibration = new CheckBox(this);
-        vibration.setText("触发时额外震动");
-        vibration.setTextSize(16);
-        vibration.setChecked(prefs.getBoolean(Config.KEY_VIBRATION, true));
-        root.addView(vibration);
-
-        TextView vibrationNote = text("关闭后模块不会主动调用震动；输入法自身按键震动需在微信输入法设置中关闭。", 12);
-        vibrationNote.setPadding(dp(32), 0, 0, dp(4));
-        root.addView(vibrationNote);
-
-
-        hideIcon = new CheckBox(this);
-        hideIcon.setText("隐藏桌面图标（隐藏后可从 LSPosed 模块设置进入）");
-        hideIcon.setTextSize(16);
-        hideIcon.setChecked(isLauncherIconHidden());
-        root.addView(hideIcon);
-
-        Button save = new Button(this);
-        save.setText("保存配置");
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(-1, dp(52));
-        buttonParams.topMargin = dp(14);
-        root.addView(save, buttonParams);
-        save.setOnClickListener(view -> save());
-
-
-        TextView footer = text(
-                "配置保存时会同步到微信输入法自身缓存；九宫格子进程首次启动即可读取。",
-                13);
-        footer.setPadding(0, dp(14), 0, 0);
-        root.addView(footer);
-
-        setContentView(scroll);
+        loadUiState();
+        configureWindow();
+        setContentView(buildPage());
     }
 
     @Override protected void onResume() {
@@ -137,95 +101,506 @@ public final class MainActivity extends Activity {
         if (hideIcon != null) hideIcon.setChecked(isLauncherIconHidden());
     }
 
-    private void addSection(LinearLayout root, String value) {
-        TextView title = text(value, 18);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setPadding(0, dp(16), 0, dp(8));
-        root.addView(title);
+    private void configureWindow() {
+        getWindow().setStatusBarColor(Color.WHITE);
+        getWindow().setNavigationBarColor(Color.WHITE);
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     }
 
-    private EditText addSingleKeyRow(LinearLayout root, String label, String value) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("下滑执行" + label, 16);
-        row.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
+    private View buildPage() {
+        LinearLayout page = vertical();
+        page.setBackgroundColor(COLOR_PAGE);
+        applySystemBarInsets(page);
 
-        EditText editText = new EditText(this);
-        editText.setGravity(Gravity.CENTER);
-        editText.setText(value == null ? "" : value.toUpperCase(Locale.ROOT));
-        editText.setTextSize(18);
-        editText.setSingleLine(true);
-        editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
-        editText.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1)});
-        row.addView(editText, new LinearLayout.LayoutParams(dp(70), dp(52)));
-        root.addView(row);
-        return editText;
+        page.addView(buildHeader(), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+
+        LinearLayout content = vertical();
+        content.setPadding(dp(12), dp(12), dp(12), dp(22));
+        scroll.addView(content);
+
+        content.addView(buildQwertyCard());
+        content.addView(buildT9Card());
+        content.addView(buildGestureCard());
+        content.addView(buildGeneralCard());
+
+        page.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        page.addView(buildSaveBar(), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return page;
     }
 
-    private EditText addMultiKeyRow(LinearLayout root, String label, String value) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text(label + "按键", 16);
-        row.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
-
-        EditText editText = new EditText(this);
-        editText.setGravity(Gravity.CENTER);
-        editText.setHint("例如 ABQ");
-        editText.setText(value == null ? "" : value.toUpperCase(Locale.ROOT));
-        editText.setTextSize(17);
-        editText.setSingleLine(true);
-        editText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
-        editText.setFilters(new InputFilter[]{new InputFilter.LengthFilter(26)});
-        row.addView(editText, new LinearLayout.LayoutParams(dp(130), dp(52)));
-        root.addView(row);
-        return editText;
-    }
-
-    private Spinner addT9Row(LinearLayout root, String label, ArrayAdapter<String> adapter, int action) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text(label, 16);
-        row.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
-
-        Spinner spinner = new Spinner(this);
-        spinner.setAdapter(adapter);
-        spinner.setSelection(Config.validAction(action));
-        row.addView(spinner, new LinearLayout.LayoutParams(dp(145), dp(52)));
-        root.addView(row);
-        return spinner;
-    }
-
-    private interface ThresholdChanged { void onChanged(int value); }
-
-    private SeekBar addThreshold(LinearLayout root, int value, int min, int max, ThresholdChanged listener) {
-        SeekBar seekBar = new SeekBar(this);
-        seekBar.setMax(max - min);
-        seekBar.setProgress(value - min);
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                listener.onChanged(progress + min);
+    private void applySystemBarInsets(View root) {
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top;
+            int bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                top = bars.top;
+                bottom = bars.bottom;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
             }
-            @Override public void onStartTrackingTouch(SeekBar bar) {}
-            @Override public void onStopTrackingTouch(SeekBar bar) {}
+            view.setPadding(0, top, 0, bottom);
+            return insets;
         });
-        root.addView(seekBar);
-        return seekBar;
+        root.requestApplyInsets();
+    }
+
+    private View buildHeader() {
+        LinearLayout header = vertical();
+        header.setPadding(dp(18), dp(14), dp(18), dp(14));
+        header.setBackgroundColor(Color.WHITE);
+
+        TextView title = text("微信输入法下滑快捷键", 21, COLOR_TEXT);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(title);
+
+        TextView version = text("v1.9.4 · 点击键位设置下滑动作", 13, COLOR_SECONDARY);
+        LinearLayout.LayoutParams versionParams = wrap();
+        versionParams.topMargin = dp(4);
+        header.addView(version, versionParams);
+        return header;
+    }
+
+    private View buildQwertyCard() {
+        LinearLayout card = createCard(
+                "26 键快捷操作",
+                "按照真实键盘排列展示。点击字母键，直接选择该键下滑时执行的动作。",
+                true);
+
+        LinearLayout keyboard = vertical();
+        keyboard.setPadding(dp(6), dp(9), dp(6), dp(9));
+
+        for (int rowIndex = 0; rowIndex < QWERTY_ROWS.length; rowIndex++) {
+            LinearLayout row = horizontal();
+            row.setGravity(Gravity.CENTER);
+
+            if (rowIndex == 1) addKeyboardSpacer(row, 0.45f);
+            if (rowIndex == 2) addKeyboardSpacer(row, 1.35f);
+
+            String letters = QWERTY_ROWS[rowIndex];
+            for (int i = 0; i < letters.length(); i++) {
+                char key = letters.charAt(i);
+                LinearLayout keyView = buildQwertyKey(key);
+                LinearLayout.LayoutParams keyParams = new LinearLayout.LayoutParams(0, dp(62), 1f);
+                keyParams.setMargins(dp(2), dp(3), dp(2), dp(3));
+                row.addView(keyView, keyParams);
+            }
+
+            if (rowIndex == 1) addKeyboardSpacer(row, 0.45f);
+            if (rowIndex == 2) addKeyboardSpacer(row, 1.35f);
+            keyboard.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        card.addView(keyboard);
+
+        card.addView(divider());
+        LinearLayout tools = horizontal();
+        tools.setPadding(dp(12), dp(10), dp(12), dp(12));
+
+        TextView defaults = smallAction("恢复默认 Z/X/C/V", false);
+        defaults.setOnClickListener(v -> restoreQwertyDefaults());
+        tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(42), 1f));
+
+        TextView clear = smallAction("清空 26 键", true);
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        clearParams.leftMargin = dp(8);
+        tools.addView(clear, clearParams);
+        clear.setOnClickListener(v -> confirmClearQwerty());
+        card.addView(tools);
+        return card;
+    }
+
+    private void addKeyboardSpacer(LinearLayout row, float weight) {
+        View spacer = new View(this);
+        row.addView(spacer, new LinearLayout.LayoutParams(0, dp(1), weight));
+    }
+
+    private LinearLayout buildQwertyKey(char letter) {
+        int index = letter - 'a';
+        LinearLayout key = vertical();
+        key.setGravity(Gravity.CENTER);
+        key.setPadding(dp(1), dp(4), dp(1), dp(4));
+        key.setClickable(true);
+        key.setFocusable(true);
+
+        TextView letterView = text(String.valueOf(Character.toUpperCase(letter)), 15, COLOR_TEXT);
+        letterView.setTypeface(Typeface.DEFAULT_BOLD);
+        letterView.setGravity(Gravity.CENTER);
+        key.addView(letterView);
+
+        TextView actionView = text("—", 9, COLOR_SECONDARY);
+        actionView.setGravity(Gravity.CENTER);
+        actionView.setMaxLines(1);
+        actionView.setSingleLine(true);
+        LinearLayout.LayoutParams actionParams = wrap();
+        actionParams.topMargin = dp(3);
+        key.addView(actionView, actionParams);
+
+        qwertyKeyViews[index] = key;
+        qwertyActionViews[index] = actionView;
+        updateQwertyKeyView(letter);
+        key.setOnClickListener(v -> showQwertyActionDialog(letter));
+        return key;
+    }
+
+    private View buildT9Card() {
+        LinearLayout card = createCard(
+                "九宫格快捷操作",
+                "按照九宫格键盘排列展示。2–9 可设置，1 保持普通输入。",
+                true);
+
+        LinearLayout keyboard = vertical();
+        keyboard.setPadding(dp(12), dp(9), dp(12), dp(9));
+
+        int[][] rows = {
+                {1, 2, 3},
+                {4, 5, 6},
+                {7, 8, 9}
+        };
+        for (int[] digits : rows) {
+            LinearLayout row = horizontal();
+            row.setGravity(Gravity.CENTER);
+            for (int digit : digits) {
+                View key = buildT9Key(digit);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(72), 1f);
+                params.setMargins(dp(4), dp(4), dp(4), dp(4));
+                row.addView(key, params);
+            }
+            keyboard.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        card.addView(keyboard);
+
+        card.addView(divider());
+        LinearLayout tools = horizontal();
+        tools.setPadding(dp(12), dp(10), dp(12), dp(12));
+        TextView clear = smallAction("清空九宫格映射", true);
+        tools.addView(clear, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+        clear.setOnClickListener(v -> confirmClearT9());
+        card.addView(tools);
+        return card;
+    }
+
+    private View buildT9Key(int digit) {
+        LinearLayout key = vertical();
+        key.setGravity(Gravity.CENTER);
+        key.setPadding(dp(6), dp(5), dp(6), dp(5));
+
+        if (digit < 0) {
+            String symbol = digit == -1 ? "*" : "#";
+            TextView symbolView = text(symbol, 20, COLOR_SECONDARY);
+            symbolView.setGravity(Gravity.CENTER);
+            key.addView(symbolView);
+            key.setBackground(rounded(COLOR_KEY_IDLE, 12, 1, COLOR_KEY_STROKE));
+            return key;
+        }
+
+        TextView digitView = text(String.valueOf(digit), 20, COLOR_TEXT);
+        digitView.setTypeface(Typeface.DEFAULT_BOLD);
+        digitView.setGravity(Gravity.CENTER);
+        key.addView(digitView);
+
+        TextView letters = text(digit >= 2 ? T9_LETTERS[digit] : "", 10, COLOR_SECONDARY);
+        letters.setGravity(Gravity.CENTER);
+        key.addView(letters);
+
+        if (digit >= 2 && digit <= 9) {
+            TextView action = text("—", 10, COLOR_SECONDARY);
+            action.setGravity(Gravity.CENTER);
+            action.setMaxLines(1);
+            action.setSingleLine(true);
+            LinearLayout.LayoutParams actionParams = wrap();
+            actionParams.topMargin = dp(2);
+            key.addView(action, actionParams);
+            t9KeyViews[digit] = key;
+            t9ActionViews[digit] = action;
+            updateT9View(digit);
+            key.setClickable(true);
+            key.setFocusable(true);
+            key.setOnClickListener(v -> showT9ActionDialog(digit));
+        } else {
+            TextView note = text("普通键", 9, COLOR_SECONDARY);
+            note.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams noteParams = wrap();
+            noteParams.topMargin = dp(2);
+            key.addView(note, noteParams);
+            key.setBackground(rounded(COLOR_KEY_IDLE, 12, 1, COLOR_KEY_STROKE));
+        }
+        return key;
+    }
+
+    private View buildGestureCard() {
+        LinearLayout card = createCard("手势设置", "距离越大越不容易误触。", true);
+
+        int qwertyValue = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
+        int t9Value = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
+
+        LinearLayout qwertyBlock = vertical();
+        qwertyBlock.setPadding(dp(16), dp(12), dp(16), dp(8));
+        LinearLayout qwertyHeader = horizontal();
+        qwertyHeader.setGravity(Gravity.CENTER_VERTICAL);
+        qwertyHeader.addView(text("26 键触发距离", 15, COLOR_TEXT),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        thresholdValue = valueBadge(qwertyValue + " dp");
+        qwertyHeader.addView(thresholdValue);
+        qwertyBlock.addView(qwertyHeader);
+        threshold = createThreshold(qwertyValue, 6, 40,
+                value -> thresholdValue.setText(value + " dp"));
+        qwertyBlock.addView(threshold);
+        card.addView(qwertyBlock);
+
+        card.addView(divider());
+
+        LinearLayout t9Block = vertical();
+        t9Block.setPadding(dp(16), dp(12), dp(16), dp(8));
+        LinearLayout t9Header = horizontal();
+        t9Header.setGravity(Gravity.CENTER_VERTICAL);
+        t9Header.addView(text("九宫格触发距离", 15, COLOR_TEXT),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        t9ThresholdValue = valueBadge(t9Value + " dp");
+        t9Header.addView(t9ThresholdValue);
+        t9Block.addView(t9Header);
+        t9Threshold = createThreshold(t9Value, 10, 48,
+                value -> t9ThresholdValue.setText(value + " dp"));
+        t9Block.addView(t9Threshold);
+        card.addView(t9Block);
+        return card;
+    }
+
+    private View buildGeneralCard() {
+        LinearLayout card = createCard("通用设置", null, false);
+
+        vibration = new CheckBox(this);
+        vibration.setText("触发快捷操作时额外震动");
+        vibration.setTextSize(15);
+        vibration.setTextColor(COLOR_TEXT);
+        vibration.setPadding(dp(12), dp(6), dp(12), dp(6));
+        vibration.setChecked(prefs.getBoolean(Config.KEY_VIBRATION, true));
+        card.addView(vibration, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+
+        card.addView(divider());
+
+        hideIcon = new CheckBox(this);
+        hideIcon.setText("隐藏桌面图标");
+        hideIcon.setTextSize(15);
+        hideIcon.setTextColor(COLOR_TEXT);
+        hideIcon.setPadding(dp(12), dp(6), dp(12), dp(6));
+        hideIcon.setChecked(isLauncherIconHidden());
+        card.addView(hideIcon, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+
+        TextView note = text("隐藏后可从 LSPosed 的模块设置页面重新进入。", 12, COLOR_SECONDARY);
+        note.setPadding(dp(18), 0, dp(18), dp(14));
+        card.addView(note);
+        return card;
+    }
+
+    private View buildSaveBar() {
+        LinearLayout bar = vertical();
+        bar.setPadding(dp(12), dp(9), dp(12), dp(11));
+        bar.setBackgroundColor(Color.WHITE);
+        bar.setElevation(dp(10));
+
+        Button save = new Button(this);
+        save.setText("保存并应用配置");
+        save.setTextSize(16);
+        save.setTextColor(Color.WHITE);
+        save.setTypeface(Typeface.DEFAULT_BOLD);
+        save.setAllCaps(false);
+        save.setBackground(rounded(COLOR_ACCENT, 12, 0, 0));
+        save.setOnClickListener(v -> save());
+        bar.addView(save, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        return bar;
+    }
+
+    private LinearLayout createCard(String title, String subtitle, boolean showHeaderDivider) {
+        LinearLayout card = vertical();
+        card.setBackground(rounded(COLOR_CARD, 16, 0, 0));
+        card.setElevation(dp(1));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.bottomMargin = dp(12);
+        card.setLayoutParams(cardParams);
+
+        LinearLayout header = vertical();
+        header.setPadding(dp(16), dp(14), dp(16), subtitle == null ? dp(12) : dp(11));
+        TextView titleView = text(title, 18, COLOR_TEXT);
+        titleView.setTypeface(Typeface.DEFAULT_BOLD);
+        header.addView(titleView);
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView subtitleView = text(subtitle, 12, COLOR_SECONDARY);
+            LinearLayout.LayoutParams subtitleParams = wrap();
+            subtitleParams.topMargin = dp(4);
+            header.addView(subtitleView, subtitleParams);
+        }
+        card.addView(header);
+        if (showHeaderDivider) card.addView(divider());
+        return card;
+    }
+
+    private void showQwertyActionDialog(char letter) {
+        String key = String.valueOf(letter);
+        int currentAction = actionForQwertyKey(key);
+        int selected = Config.menuPositionForAction(currentAction);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(Character.toUpperCase(letter) + " 键下滑执行")
+                .setSingleChoiceItems(Config.ACTION_MENU_LABELS, selected, null)
+                .setNegativeButton("取消", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
+                (parent, view, position, id) -> {
+                    int action = Config.actionForMenuPosition(position);
+                    assignQwertyAction(key, action);
+                    dialog.dismiss();
+                }));
+        dialog.show();
+    }
+
+    private void assignQwertyAction(String key, int action) {
+        String movedFrom = null;
+        int previousAction = actionForQwertyKey(key);
+
+        for (int i = 0; i < qwertyKeys.length; i++) {
+            if (key.equals(qwertyKeys[i])) qwertyKeys[i] = "";
+        }
+        disabledKeys = disabledKeys.replace(key, "");
+
+        if (action == Config.ACTION_DISABLE) {
+            disabledKeys = normalizedKeys(disabledKeys + key);
+        } else if (action != Config.ACTION_NONE) {
+            int actionIndex = actionIndexFor(action);
+            if (actionIndex >= 0) {
+                String oldKey = qwertyKeys[actionIndex];
+                if (oldKey != null && !oldKey.isEmpty() && !oldKey.equals(key)) {
+                    movedFrom = oldKey.toUpperCase(Locale.ROOT);
+                }
+                qwertyKeys[actionIndex] = key;
+            }
+        }
+
+        updateAllQwertyViews();
+        if (movedFrom != null) {
+            Toast.makeText(this,
+                    "“" + Config.actionName(action) + "”已从 " + movedFrom + " 转移到 "
+                            + key.toUpperCase(Locale.ROOT),
+                    Toast.LENGTH_SHORT).show();
+        } else if (previousAction != action) {
+            Toast.makeText(this,
+                    key.toUpperCase(Locale.ROOT) + " → " + Config.actionName(action),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private int actionIndexFor(int action) {
+        for (int i = 0; i < QWERTY_ACTIONS.length; i++) {
+            if (QWERTY_ACTIONS[i] == action) return i;
+        }
+        return -1;
+    }
+
+    private int actionForQwertyKey(String key) {
+        if (key == null || key.length() != 1) return Config.ACTION_NONE;
+        if (disabledKeys.indexOf(key) >= 0) return Config.ACTION_DISABLE;
+        for (int i = 0; i < qwertyKeys.length; i++) {
+            if (key.equals(qwertyKeys[i])) return QWERTY_ACTIONS[i];
+        }
+        return Config.ACTION_NONE;
+    }
+
+    private void showT9ActionDialog(int digit) {
+        int current = Config.menuPositionForAction(t9Actions[digit]);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(Config.t9Label(digit) + " 下滑执行")
+                .setSingleChoiceItems(Config.ACTION_MENU_LABELS, current, null)
+                .setNegativeButton("取消", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
+                (parent, view, position, id) -> {
+                    t9Actions[digit] = Config.actionForMenuPosition(position);
+                    updateT9View(digit);
+                    dialog.dismiss();
+                }));
+        dialog.show();
+    }
+
+    private void restoreQwertyDefaults() {
+        Arrays.fill(qwertyKeys, "");
+        qwertyKeys[0] = "z";
+        qwertyKeys[1] = "x";
+        qwertyKeys[2] = "c";
+        qwertyKeys[3] = "v";
+        disabledKeys = "";
+        updateAllQwertyViews();
+        Toast.makeText(this, "已恢复默认映射，点击底部按钮保存", Toast.LENGTH_SHORT).show();
+    }
+
+    private void confirmClearQwerty() {
+        new AlertDialog.Builder(this)
+                .setTitle("清空 26 键映射？")
+                .setMessage("将清空全部快捷功能和禁用下滑按键，保存前仍可重新设置。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (dialog, which) -> {
+                    Arrays.fill(qwertyKeys, "");
+                    disabledKeys = "";
+                    updateAllQwertyViews();
+                })
+                .show();
+    }
+
+    private void confirmClearT9() {
+        new AlertDialog.Builder(this)
+                .setTitle("清空九宫格映射？")
+                .setMessage("2–9 将全部恢复为未绑定，保存前仍可重新设置。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (dialog, which) -> {
+                    for (int digit = 2; digit <= 9; digit++) {
+                        t9Actions[digit] = Config.ACTION_NONE;
+                        updateT9View(digit);
+                    }
+                })
+                .show();
+    }
+
+    private void loadUiState() {
+        qwertyKeys[0] = normalizedKey(prefs.getString(Config.KEY_SELECT_ALL, "z"));
+        qwertyKeys[1] = normalizedKey(prefs.getString(Config.KEY_CUT, "x"));
+        qwertyKeys[2] = normalizedKey(prefs.getString(Config.KEY_COPY, "c"));
+        qwertyKeys[3] = normalizedKey(prefs.getString(Config.KEY_PASTE, "v"));
+        qwertyKeys[4] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_START, ""));
+        qwertyKeys[5] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_END, ""));
+        qwertyKeys[6] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, ""));
+        qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));
+        disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
+        for (int digit = 2; digit <= 9; digit++) {
+            t9Actions[digit] = Config.validAction(
+                    prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
+        }
     }
 
     private void save() {
-        String[] functionKeys = { key(selectAll), key(cut), key(copy), key(paste) };
         HashSet<String> used = new HashSet<>();
-        for (String value : functionKeys) {
-            if (!value.isEmpty() && !used.add(value)) {
+        for (String key : qwertyKeys) {
+            if (!key.isEmpty() && !used.add(key)) {
                 Toast.makeText(this, "同一个字母不能绑定多个功能", Toast.LENGTH_SHORT).show();
                 return;
             }
         }
-
-        String disabled = keys(disabledKeys);
-        for (int i = 0; i < disabled.length(); i++) {
-            if (used.contains(String.valueOf(disabled.charAt(i)))) {
-                Toast.makeText(this, "禁用下滑按键不能与功能绑定重复", Toast.LENGTH_SHORT).show();
+        for (int i = 0; i < disabledKeys.length(); i++) {
+            if (used.contains(String.valueOf(disabledKeys.charAt(i)))) {
+                Toast.makeText(this, "禁用下滑按键不能与快捷功能重复", Toast.LENGTH_SHORT).show();
                 return;
             }
         }
@@ -233,11 +608,15 @@ public final class MainActivity extends Activity {
         boolean shouldHideIcon = hideIcon.isChecked();
         int revision = prefs.getInt(Config.KEY_REVISION, 0) + 1;
         SharedPreferences.Editor editor = prefs.edit()
-                .putString(Config.KEY_SELECT_ALL, functionKeys[0])
-                .putString(Config.KEY_CUT, functionKeys[1])
-                .putString(Config.KEY_COPY, functionKeys[2])
-                .putString(Config.KEY_PASTE, functionKeys[3])
-                .putString(Config.KEY_DISABLED_KEYS, disabled)
+                .putString(Config.KEY_SELECT_ALL, qwertyKeys[0])
+                .putString(Config.KEY_CUT, qwertyKeys[1])
+                .putString(Config.KEY_COPY, qwertyKeys[2])
+                .putString(Config.KEY_PASTE, qwertyKeys[3])
+                .putString(Config.KEY_PARAGRAPH_START, qwertyKeys[4])
+                .putString(Config.KEY_PARAGRAPH_END, qwertyKeys[5])
+                .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[6])
+                .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[7])
+                .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
                 .remove("text_start")
                 .remove("text_end")
                 .remove("copy_all")
@@ -249,7 +628,7 @@ public final class MainActivity extends Activity {
                 .putInt(Config.KEY_REVISION, revision);
 
         for (int digit = 2; digit <= 9; digit++) {
-            editor.putInt(Config.t9PrefKey(digit), t9Spinners[digit].getSelectedItemPosition());
+            editor.putInt(Config.t9PrefKey(digit), t9Actions[digit]);
         }
 
         if (!editor.commit()) {
@@ -257,29 +636,112 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        // 将完整配置随显式广播发送给微信输入法的常驻进程。
-        // 常驻进程会写入微信输入法自身的私有缓存，后续九宫格 :hld 子进程启动时直接读取。
         Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
         changed.setPackage("com.tencent.wetype");
         changed.putExtra(Config.EXTRA_SNAPSHOT, true);
-        changed.putExtra(Config.KEY_SELECT_ALL, functionKeys[0]);
-        changed.putExtra(Config.KEY_CUT, functionKeys[1]);
-        changed.putExtra(Config.KEY_COPY, functionKeys[2]);
-        changed.putExtra(Config.KEY_PASTE, functionKeys[3]);
-        changed.putExtra(Config.KEY_DISABLED_KEYS, disabled);
+        changed.putExtra(Config.KEY_SELECT_ALL, qwertyKeys[0]);
+        changed.putExtra(Config.KEY_CUT, qwertyKeys[1]);
+        changed.putExtra(Config.KEY_COPY, qwertyKeys[2]);
+        changed.putExtra(Config.KEY_PASTE, qwertyKeys[3]);
+        changed.putExtra(Config.KEY_PARAGRAPH_START, qwertyKeys[4]);
+        changed.putExtra(Config.KEY_PARAGRAPH_END, qwertyKeys[5]);
+        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[6]);
+        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[7]);
+        changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
         changed.putExtra(Config.KEY_VIBRATION, vibration.isChecked());
         changed.putExtra(Config.KEY_REVISION, revision);
         for (int digit = 2; digit <= 9; digit++) {
-            changed.putExtra(Config.t9PrefKey(digit), t9Spinners[digit].getSelectedItemPosition());
+            changed.putExtra(Config.t9PrefKey(digit), t9Actions[digit]);
         }
         sendBroadcast(changed);
 
         setLauncherIconHidden(shouldHideIcon);
         Toast.makeText(this,
-                shouldHideIcon ? "已保存并隐藏桌面图标，可从 LSPosed 模块设置重新进入" : "已保存，配置将在输入法中自动生效",
+                shouldHideIcon
+                        ? "已保存并隐藏桌面图标，可从 LSPosed 模块设置重新进入"
+                        : "配置已保存并同步到微信输入法",
                 Toast.LENGTH_LONG).show();
+    }
+
+    private void updateAllQwertyViews() {
+        for (char key = 'a'; key <= 'z'; key++) updateQwertyKeyView(key);
+    }
+
+    private void updateQwertyKeyView(char letter) {
+        int index = letter - 'a';
+        LinearLayout keyView = qwertyKeyViews[index];
+        TextView actionView = qwertyActionViews[index];
+        if (keyView == null || actionView == null) return;
+
+        int action = actionForQwertyKey(String.valueOf(letter));
+        actionView.setText(shortActionName(action));
+        if (action == Config.ACTION_DISABLE) {
+            actionView.setTextColor(COLOR_DANGER);
+            keyView.setBackground(rounded(COLOR_DANGER_SOFT, 9, 1, Color.rgb(245, 190, 190)));
+        } else if (action == Config.ACTION_NONE) {
+            actionView.setTextColor(COLOR_SECONDARY);
+            keyView.setBackground(rounded(COLOR_KEY_IDLE, 9, 1, COLOR_KEY_STROKE));
+        } else {
+            actionView.setTextColor(COLOR_ACCENT);
+            keyView.setBackground(rounded(COLOR_ACCENT_SOFT, 9, 1, Color.rgb(190, 210, 245)));
+        }
+    }
+
+    private void updateT9View(int digit) {
+        if (t9ActionViews[digit] == null || t9KeyViews[digit] == null) return;
+        int action = t9Actions[digit];
+        t9ActionViews[digit].setText(shortActionName(action));
+        if (action == Config.ACTION_DISABLE) {
+            t9ActionViews[digit].setTextColor(COLOR_DANGER);
+            t9KeyViews[digit].setBackground(
+                    rounded(COLOR_DANGER_SOFT, 12, 1, Color.rgb(245, 190, 190)));
+        } else if (action == Config.ACTION_NONE) {
+            t9ActionViews[digit].setTextColor(COLOR_SECONDARY);
+            t9KeyViews[digit].setBackground(rounded(COLOR_KEY_IDLE, 12, 1, COLOR_KEY_STROKE));
+        } else {
+            t9ActionViews[digit].setTextColor(COLOR_ACCENT);
+            t9KeyViews[digit].setBackground(
+                    rounded(COLOR_ACCENT_SOFT, 12, 1, Color.rgb(190, 210, 245)));
+        }
+    }
+
+    private String shortActionName(int action) {
+        switch (Config.validAction(action)) {
+            case Config.ACTION_SELECT_ALL: return "全选";
+            case Config.ACTION_CUT: return "剪切";
+            case Config.ACTION_COPY: return "复制";
+            case Config.ACTION_PASTE: return "粘贴";
+            case Config.ACTION_DISABLE: return "禁用";
+            case Config.ACTION_PARAGRAPH_START: return "段首";
+            case Config.ACTION_PARAGRAPH_END: return "段尾";
+            case Config.ACTION_SELECT_TO_PARAGRAPH_START: return "选段首";
+            case Config.ACTION_SELECT_TO_PARAGRAPH_END: return "选段尾";
+            default: return "—";
+        }
+    }
+
+    private String normalizedKey(String value) {
+        if (value == null) return "";
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.length() != 1) return "";
+        char c = normalized.charAt(0);
+        return c >= 'a' && c <= 'z' ? normalized : "";
+    }
+
+    private String normalizedKeys(String raw) {
+        if (raw == null) return "";
+        boolean[] seen = new boolean[26];
+        StringBuilder result = new StringBuilder(26);
+        raw = raw.toLowerCase(Locale.ROOT);
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c < 'a' || c > 'z' || seen[c - 'a']) continue;
+            seen[c - 'a'] = true;
+            result.append(c);
+        }
+        return result.toString();
     }
 
     private boolean isLauncherIconHidden() {
@@ -297,36 +759,87 @@ public final class MainActivity extends Activity {
         int state = hidden
                 ? PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                 : PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
-        getPackageManager().setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP);
+        getPackageManager().setComponentEnabledSetting(
+                component, state, PackageManager.DONT_KILL_APP);
     }
 
-    private String key(EditText editText) {
-        String value = editText.getText().toString().trim().toLowerCase(Locale.ROOT);
-        return value.length() == 1 && value.charAt(0) >= 'a' && value.charAt(0) <= 'z' ? value : "";
+    private interface ThresholdChanged { void onChanged(int value); }
+
+    private SeekBar createThreshold(int value, int min, int max, ThresholdChanged listener) {
+        SeekBar seekBar = new SeekBar(this);
+        seekBar.setMax(max - min);
+        seekBar.setProgress(value - min);
+        seekBar.setPadding(0, dp(4), 0, 0);
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                listener.onChanged(progress + min);
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) {}
+            @Override public void onStopTrackingTouch(SeekBar bar) {}
+        });
+        return seekBar;
     }
 
-    private String keys(EditText editText) {
-        String raw = editText.getText().toString().toLowerCase(Locale.ROOT);
-        boolean[] seen = new boolean[26];
-        StringBuilder result = new StringBuilder(26);
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            if (c < 'a' || c > 'z' || seen[c - 'a']) continue;
-            seen[c - 'a'] = true;
-            result.append(c);
-        }
-        return result.toString();
+    private TextView valueBadge(String value) {
+        TextView view = text(value, 13, COLOR_ACCENT);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(10), dp(4), dp(10), dp(4));
+        view.setBackground(rounded(COLOR_ACCENT_SOFT, 12, 0, 0));
+        return view;
+    }
+
+    private TextView smallAction(String value, boolean danger) {
+        TextView view = text(value, 13, danger ? COLOR_DANGER : COLOR_ACCENT);
+        view.setGravity(Gravity.CENTER);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setBackground(rounded(danger ? COLOR_DANGER_SOFT : COLOR_ACCENT_SOFT, 10, 0, 0));
+        view.setClickable(true);
+        return view;
+    }
+
+    private View divider() {
+        View divider = new View(this);
+        divider.setBackgroundColor(COLOR_DIVIDER);
+        divider.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1)));
+        return divider;
+    }
+
+    private GradientDrawable rounded(int fillColor, int radiusDp, int strokeWidthDp, int strokeColor) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fillColor);
+        drawable.setCornerRadius(dp(radiusDp));
+        if (strokeWidthDp > 0) drawable.setStroke(dp(strokeWidthDp), strokeColor);
+        return drawable;
+    }
+
+    private TextView text(String value, int sp, int color) {
+        TextView textView = new TextView(this);
+        textView.setText(value);
+        textView.setTextSize(sp);
+        textView.setTextColor(color);
+        return textView;
+    }
+
+    private LinearLayout vertical() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        return layout;
+    }
+
+    private LinearLayout horizontal() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.HORIZONTAL);
+        return layout;
+    }
+
+    private LinearLayout.LayoutParams wrap() {
+        return new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     private static int clamp(int value, int min, int max, int fallback) {
         return value < min || value > max ? fallback : value;
-    }
-
-    private TextView text(String value, int sp) {
-        TextView textView = new TextView(this);
-        textView.setText(value);
-        textView.setTextSize(sp);
-        return textView;
     }
 
     private int dp(int value) {
