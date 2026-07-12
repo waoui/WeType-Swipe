@@ -1,3 +1,4 @@
+# One-shot production finalizer; this file removes itself after a successful build.
 name: Finalize v1.10.0 production source
 
 on:
