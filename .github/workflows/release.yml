@@ -1,0 +1,128 @@
+name: 自动发布正式版
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-v1.9.4
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: "1.9.4"
+      TAG: "v1.9.4"
+      SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 恢复永久签名证书
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.SIGNING_KEY_BASE64 }}"
+          test -n "$SIGNING_STORE_PASSWORD"
+          test -n "$SIGNING_KEY_ALIAS"
+          test -n "$SIGNING_KEY_PASSWORD"
+          printf '%s' "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > "$SIGNING_STORE_FILE"
+
+      - name: 编译正式版
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean assembleRelease
+
+      - name: 校验签名并整理附件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          APK="release/WeType_Swipe_LSPosed_v${VERSION}.apk"
+          SOURCE="release/WeType_Swipe_LSPosed_v${VERSION}_source.zip"
+          SUMS="release/WeType_Swipe_LSPosed_v${VERSION}_SHA256SUMS.txt"
+
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+
+          git archive --format=zip --prefix="WeType-Swipe-v${VERSION}/" HEAD -o "$SOURCE"
+          (
+            cd release
+            sha256sum "WeType_Swipe_LSPosed_v${VERSION}.apk" \
+              "WeType_Swipe_LSPosed_v${VERSION}_source.zip" \
+              > "WeType_Swipe_LSPosed_v${VERSION}_SHA256SUMS.txt"
+          )
+          test -s "$SUMS"
+
+      - name: 生成发布说明
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          适用于安卓版微信输入法的 LSPosed 模块，支持 26 键和九宫格按键下滑快捷操作。
+
+          ### 新增功能
+
+          - 段首：移动光标到当前段落开头
+          - 段尾：移动光标到当前段落结尾
+          - 选至段首：选择当前位置到段落开头
+          - 选至段尾：选择当前位置到段落结尾
+
+          ### 界面改进
+
+          - 26 键设置改为标准 QWERTY 键盘布局
+          - 九宫格设置改为 1–9 键盘布局
+          EOF
+
+      - name: 创建或更新 GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILES=(
+            "release/WeType_Swipe_LSPosed_v${VERSION}.apk"
+            "release/WeType_Swipe_LSPosed_v${VERSION}_source.zip"
+            "release/WeType_Swipe_LSPosed_v${VERSION}_SHA256SUMS.txt"
+          )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release edit "$TAG" \
+              --title "微信输入法下滑快捷键 v${VERSION}" \
+              --notes-file release-notes.md \
+              --latest
+          else
+            gh release create "$TAG" "${FILES[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "微信输入法下滑快捷键 v${VERSION}" \
+              --notes-file release-notes.md \
+              --latest
+          fi
+
+      - name: 清理签名文件
+        if: always()
+        shell: bash
+        run: rm -f "$SIGNING_STORE_FILE"
