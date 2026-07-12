@@ -78,3 +78,5 @@ jobs:
           git rm -r .release-temp/v1.9.4 .github/workflows/publish-v1.9.4.yml
           git commit -m "chore: clean v1.9.4 release payload"
           git push
+
+# Trigger after Actions permissions were enabled.
