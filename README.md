@@ -2,6 +2,15 @@
 
 适用于安卓版微信输入法的 LSPosed 模块，可为 26 键字母和九宫格 `2–9` 实体键配置下滑快捷操作。
 
+> 当前稳定版本：v1.9.4
+
+## 下载
+
+- [前往 GitHub Releases](https://github.com/waoui/WeType-Swipe/releases/latest)
+- [直接下载 v1.9.4 APK](https://github.com/waoui/WeType-Swipe/releases/download/v1.9.4/WeType_Swipe_LSPosed_v1.9.4.apk)
+
+请仅从本仓库 Releases 下载正式版本，并核对发布页中的 SHA-256。
+
 ## 功能
 
 - 全选、剪切、复制、粘贴
