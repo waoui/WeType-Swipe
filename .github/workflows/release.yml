@@ -12,15 +12,15 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-v1.9.4
+  group: release-v1.10.0
   cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      VERSION: "1.9.4"
-      TAG: "v1.9.4"
+      VERSION: "1.10.0"
+      TAG: "v1.10.0"
       SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
       SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
@@ -83,24 +83,9 @@ jobs:
           )
           test -s "$SUMS"
 
-      - name: 生成发布说明
+      - name: 读取发布说明
         shell: bash
-        run: |
-          cat > release-notes.md <<'EOF'
-          适用于安卓版微信输入法的 LSPosed 模块，支持 26 键和九宫格按键下滑快捷操作。
-
-          ### 新增功能
-
-          - 段首：移动光标到当前段落开头
-          - 段尾：移动光标到当前段落结尾
-          - 选至段首：选择当前位置到段落开头
-          - 选至段尾：选择当前位置到段落结尾
-
-          ### 界面改进
-
-          - 26 键设置改为标准 QWERTY 键盘布局
-          - 九宫格设置改为 1–9 键盘布局
-          EOF
+        run: cp RELEASE_NOTES_v1.10.0.md release-notes.md
 
       - name: 创建或更新 GitHub Release
         shell: bash
