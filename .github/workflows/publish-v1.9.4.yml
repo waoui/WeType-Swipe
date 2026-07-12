@@ -1,0 +1,75 @@
+name: Publish v1.9.4
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-v1.9.4.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-out
+          cat .release-temp/v1.9.4/apk/part-* | base64 --decode > release-out/WeType_Swipe_LSPosed_v1.9.4.apk
+          cat .release-temp/v1.9.4/source/part-* | base64 --decode > release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
+          cp .release-temp/v1.9.4/WeType_Swipe_v1.9.4_SHA256SUMS.txt release-out/
+          cp .release-temp/v1.9.4/RELEASE_NOTES.md release-out/
+
+      - name: Verify release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "c53963ea23ebc36b5fd93bef17db2ffc6571cf30412e3484be52597ce76b95b5  release-out/WeType_Swipe_LSPosed_v1.9.4.apk" | sha256sum --check --strict -
+          echo "7790e0578472f1f50081804b9c45c51d46b8ce3c17a404ecfb77309deec07733  release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip" | sha256sum --check --strict -
+          unzip -t release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view v1.9.4 >/dev/null 2>&1; then
+            gh release edit v1.9.4 \
+              --title "微信输入法下滑快捷键 v1.9.4" \
+              --notes-file release-out/RELEASE_NOTES.md \
+              --latest
+            gh release upload v1.9.4 \
+              release-out/WeType_Swipe_LSPosed_v1.9.4.apk \
+              release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip \
+              release-out/WeType_Swipe_v1.9.4_SHA256SUMS.txt \
+              --clobber
+          else
+            gh release create v1.9.4 \
+              release-out/WeType_Swipe_LSPosed_v1.9.4.apk \
+              release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip \
+              release-out/WeType_Swipe_v1.9.4_SHA256SUMS.txt \
+              --target main \
+              --title "微信输入法下滑快捷键 v1.9.4" \
+              --notes-file release-out/RELEASE_NOTES.md \
+              --latest
+          fi
+
+      - name: Clean temporary release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -r .release-temp/v1.9.4 .github/workflows/publish-v1.9.4.yml
+          git commit -m "chore: clean v1.9.4 release payload"
+          git push
