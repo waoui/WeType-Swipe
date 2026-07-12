@@ -10,8 +10,8 @@ android {
         applicationId = "com.rww.wetypeswipe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.8.0"
+        versionCode = 15
+        versionName = "1.8.6"
     }
 
     buildTypes {

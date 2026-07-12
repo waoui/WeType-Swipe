@@ -1,5 +1,6 @@
 package com.rww.wetypeswipe;
 
+import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -7,9 +8,8 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.database.Cursor;
+import android.content.SharedPreferences;
 import android.inputmethodservice.InputMethodService;
-import android.net.Uri;
 import android.os.Build;
 import android.text.InputType;
 import android.util.Log;
@@ -34,21 +34,17 @@ import io.github.libxposed.api.XposedModuleInterface;
 public final class MainHook extends XposedModule {
     private static final String TAG = "WeTypeSwipe";
     private static final String TARGET = "com.tencent.wetype";
-    private static final String MODULE = "com.rww.wetypeswipe";
     private static final String KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.n";
-    private static final Uri CONFIG_URI = Uri.parse("content://com.rww.wetypeswipe.config/current");
 
     private final GestureTracker tracker = new GestureTracker();
     private final ConcurrentHashMap<String, Method> methodCache = new ConcurrentHashMap<>();
 
     private volatile WeakReference<InputMethodService> imeRef = new WeakReference<>(null);
-    private volatile WeakReference<Context> contextRef = new WeakReference<>(null);
     private volatile Config cachedConfig = defaultConfig();
     private volatile Class<?> keyboardBaseClass;
     private volatile boolean hooksInstalled;
     private volatile boolean receiverRegistered;
-    private volatile boolean configLoaded;
-    private volatile boolean injectionReported;
+    private volatile boolean targetCacheLoaded;
     private BroadcastReceiver configReceiver;
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -59,7 +55,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.8 entered target package");
+            logInfo("v1.8.6 entered target package");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -73,6 +69,11 @@ public final class MainHook extends XposedModule {
 
     private synchronized void installHooks() throws Exception {
         if (hooksInstalled) return;
+
+        hookAfter(Application.class.getDeclaredMethod("attach", Context.class),
+                chain -> captureApplication(chain.getThisObject()));
+        hookAfter(Application.class.getDeclaredMethod("onCreate"),
+                chain -> captureApplication(chain.getThisObject()));
 
         hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
                 chain -> captureIme(chain.getThisObject()));
@@ -110,6 +111,17 @@ public final class MainHook extends XposedModule {
         });
     }
 
+    private void captureApplication(Object object) {
+        if (!(object instanceof Application)) return;
+        Application app = (Application) object;
+        try {
+            if (!TARGET.equals(app.getPackageName())) return;
+        } catch (Throwable ignored) {
+            return;
+        }
+        ensureConfigSync(app);
+    }
+
     private void captureIme(Object object) {
         if (!(object instanceof InputMethodService)) return;
         InputMethodService ime = (InputMethodService) object;
@@ -120,23 +132,25 @@ public final class MainHook extends XposedModule {
         }
 
         imeRef = new WeakReference<>(ime);
-        contextRef = new WeakReference<>((Context) ime);
-        registerConfigReceiver(ime);
-        if (!configLoaded) reloadConfigFromProvider(ime);
+        ensureConfigSync(ime);
 
-        if (!injectionReported) {
-            injectionReported = true;
-            reportAlways(ime, "模块已注入，等待键盘触摸", null, null, null);
-        }
     }
 
     private synchronized void registerConfigReceiver(Context context) {
-        if (receiverRegistered) return;
+        if (receiverRegistered || context == null) return;
         configReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context receiverContext, Intent intent) {
-                if (intent != null && Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) {
-                    reloadConfigFromProvider(receiverContext);
+                if (intent == null || !Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
+                if (intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
+                    Config config = configFromIntent(intent);
+                    if (config != null) {
+                        cachedConfig = config;
+                        targetCacheLoaded = true;
+                        persistTargetCache(receiverContext, config);
+                        return;
+                    }
                 }
+                loadConfigFromTargetCache(receiverContext);
             }
         };
         try {
@@ -152,52 +166,98 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private void reloadConfigFromProvider(Context context) {
-        Cursor cursor = null;
-        try {
-            cursor = context.getContentResolver().query(CONFIG_URI, null, null, null, null);
-            if (cursor == null || !cursor.moveToFirst()) throw new IllegalStateException("empty config cursor");
+    private void ensureConfigSync(Context context) {
+        if (context == null) return;
+        Context stableContext = context.getApplicationContext();
+        if (stableContext == null) stableContext = context;
+        registerConfigReceiver(stableContext);
+        loadConfigFromTargetCache(stableContext);
+    }
 
+    private Config configFromIntent(Intent intent) {
+        try {
             Config config = new Config();
-            config.selectAll = stringValue(cursor, Config.KEY_SELECT_ALL, "z");
-            config.cut = stringValue(cursor, Config.KEY_CUT, "x");
-            config.copy = stringValue(cursor, Config.KEY_COPY, "c");
-            config.paste = stringValue(cursor, Config.KEY_PASTE, "v");
-            config.disabledKeys = stringValue(cursor, Config.KEY_DISABLED_KEYS, "");
-            config.thresholdDp = intValue(cursor, Config.KEY_THRESHOLD, 12);
-            config.t9ThresholdDp = intValue(cursor, Config.KEY_T9_THRESHOLD, 20);
+            config.selectAll = intent.getStringExtra(Config.KEY_SELECT_ALL);
+            config.cut = intent.getStringExtra(Config.KEY_CUT);
+            config.copy = intent.getStringExtra(Config.KEY_COPY);
+            config.paste = intent.getStringExtra(Config.KEY_PASTE);
+            config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);
+            if (config.selectAll == null) config.selectAll = "z";
+            if (config.cut == null) config.cut = "x";
+            if (config.copy == null) config.copy = "c";
+            if (config.paste == null) config.paste = "v";
+            if (config.disabledKeys == null) config.disabledKeys = "";
+            config.thresholdDp = clamp(intent.getIntExtra(Config.KEY_THRESHOLD, 12), 6, 40, 12);
+            config.t9ThresholdDp = clamp(intent.getIntExtra(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
+            config.vibration = intent.getBooleanExtra(Config.KEY_VIBRATION, true);
+            config.revision = intent.getIntExtra(Config.KEY_REVISION, 0);
             for (int digit = 2; digit <= 9; digit++) {
                 config.t9Actions[digit] = Config.validAction(
-                        intValue(cursor, Config.t9PrefKey(digit), Config.ACTION_NONE));
+                        intent.getIntExtra(Config.t9PrefKey(digit), Config.ACTION_NONE));
             }
-            config.vibration = intValue(cursor, Config.KEY_VIBRATION, 1) != 0;
-            config.diagnostic = intValue(cursor, Config.KEY_DIAGNOSTIC, 0) != 0;
-            if (config.thresholdDp < 6) config.thresholdDp = 6;
-            if (config.thresholdDp > 40) config.thresholdDp = 40;
-            if (config.t9ThresholdDp < 10) config.t9ThresholdDp = 10;
-            if (config.t9ThresholdDp > 48) config.t9ThresholdDp = 48;
             config.rebuildActionMap();
-            cachedConfig = config;
-            configLoaded = true;
-            reportDebug(context, "配置已刷新：震动=" + (config.vibration ? "开" : "关"), null, null, null);
+            return config;
         } catch (Throwable throwable) {
-            logError("config provider unavailable, keeping current config", throwable);
-            reportAlways(context, "配置读取失败，暂用当前配置", null, null, String.valueOf(throwable));
-        } finally {
-            if (cursor != null) cursor.close();
+            logError("config snapshot parse failed", throwable);
+            return null;
         }
     }
 
-    private static String stringValue(Cursor cursor, String column, String fallback) {
-        int index = cursor.getColumnIndex(column);
-        if (index < 0 || cursor.isNull(index)) return fallback;
-        String value = cursor.getString(index);
-        return value == null ? fallback : value;
+    private synchronized void persistTargetCache(Context context, Config config) {
+        try {
+            SharedPreferences.Editor editor = context.getSharedPreferences(
+                    Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE).edit()
+                    .putString(Config.KEY_SELECT_ALL, config.selectAll)
+                    .putString(Config.KEY_CUT, config.cut)
+                    .putString(Config.KEY_COPY, config.copy)
+                    .putString(Config.KEY_PASTE, config.paste)
+                    .putString(Config.KEY_DISABLED_KEYS, config.disabledKeys)
+                    .putInt(Config.KEY_THRESHOLD, config.thresholdDp)
+                    .putInt(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp)
+                    .putBoolean(Config.KEY_VIBRATION, config.vibration)
+                    .putInt(Config.KEY_REVISION, config.revision);
+            for (int digit = 2; digit <= 9; digit++) {
+                editor.putInt(Config.t9PrefKey(digit), config.t9Actions[digit]);
+            }
+            editor.commit();
+        } catch (Throwable throwable) {
+            logError("target config cache write failed", throwable);
+        }
     }
 
-    private static int intValue(Cursor cursor, String column, int fallback) {
-        int index = cursor.getColumnIndex(column);
-        return index < 0 || cursor.isNull(index) ? fallback : cursor.getInt(index);
+    private synchronized void loadConfigFromTargetCache(Context context) {
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(
+                    Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE);
+            if (!prefs.contains(Config.KEY_REVISION)) {
+                targetCacheLoaded = false;
+                return;
+            }
+            Config config = new Config();
+            config.selectAll = prefs.getString(Config.KEY_SELECT_ALL, "z");
+            config.cut = prefs.getString(Config.KEY_CUT, "x");
+            config.copy = prefs.getString(Config.KEY_COPY, "c");
+            config.paste = prefs.getString(Config.KEY_PASTE, "v");
+            config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");
+            config.thresholdDp = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
+            config.t9ThresholdDp = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
+            config.vibration = prefs.getBoolean(Config.KEY_VIBRATION, true);
+            config.revision = prefs.getInt(Config.KEY_REVISION, 0);
+            for (int digit = 2; digit <= 9; digit++) {
+                config.t9Actions[digit] = Config.validAction(
+                        prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
+            }
+            config.rebuildActionMap();
+            cachedConfig = config;
+            targetCacheLoaded = true;
+        } catch (Throwable throwable) {
+            targetCacheLoaded = false;
+            logError("target config cache load failed", throwable);
+        }
+    }
+
+    private static int clamp(int value, int min, int max, int fallback) {
+        return value < min || value > max ? fallback : value;
     }
 
     private Object interceptDispatchTouch(XposedInterface.Chain chain) throws Throwable {
@@ -214,12 +274,14 @@ public final class MainHook extends XposedModule {
             keyboardBase = findKeyboardBase(view.getClass());
             if (keyboardBase == null) return chain.proceed();
             keyboardBaseClass = keyboardBase;
-            reportAlways(view.getContext(), "已命中微信输入法键盘触摸链路", null, null, null);
             logInfo("keyboard class cached: " + keyboardBase.getName());
         } else if (!keyboardBase.isInstance(view)) {
             return chain.proceed();
         }
 
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !targetCacheLoaded) {
+            ensureConfigSync(view.getContext());
+        }
         return interceptKeyboardTouch(chain, view, event);
     }
 
@@ -238,26 +300,24 @@ public final class MainHook extends XposedModule {
         }
 
         Config config = cachedConfig;
-        if (!config.hasAnyBinding()) return chain.proceed();
+        if (maskedAction != MotionEvent.ACTION_DOWN
+                && !config.hasAnyBinding()
+                && !tracker.matches(keyboard)) return chain.proceed();
 
         if (maskedAction == MotionEvent.ACTION_DOWN) {
             tracker.begin(keyboard, event.getX(), event.getY());
             Object result = chain.proceed();
 
             KeyInfo keyInfo = keyAfterDown(keyboard, event);
+
+
             int requestedAction = keyInfo == null
                     ? Config.ACTION_NONE
                     : config.actionFor(keyInfo.key, keyInfo.t9);
             float thresholdPx = dp(keyboard,
                     keyInfo != null && keyInfo.t9 ? config.t9ThresholdDp : config.thresholdDp);
             tracker.setBinding(keyboard, keyInfo, requestedAction, thresholdPx);
-            if (requestedAction == Config.ACTION_NONE) {
-                tracker.clear(keyboard);
-            } else {
-                reportDebug(keyboard.getContext(),
-                        keyInfo.t9 ? "已识别九宫格按键，等待下滑" : "已识别 26 键按键，等待下滑",
-                        keyInfo.display, Config.actionName(requestedAction), null);
-            }
+            if (requestedAction == Config.ACTION_NONE) tracker.clear(keyboard);
             return result;
         }
 
@@ -278,7 +338,6 @@ public final class MainHook extends XposedModule {
             if (deltaY >= tracker.thresholdPx && Math.abs(deltaX) <= horizontalLimit) {
                 final int requestedAction = tracker.action;
                 final String key = tracker.key;
-                final String displayKey = tracker.displayKey;
                 final Context context = keyboard.getContext();
                 tracker.markTriggered(keyboard);
 
@@ -290,11 +349,8 @@ public final class MainHook extends XposedModule {
                     catch (Throwable ignored) {}
                 }
 
-                reportDebug(context, "已识别下滑手势", displayKey, Config.actionName(requestedAction), null);
                 if (requestedAction != Config.ACTION_DISABLE) {
                     keyboard.post(() -> performAction(context, requestedAction, key));
-                } else {
-                    reportDebug(context, "指定按键下滑已禁用", displayKey, Config.actionName(requestedAction), null);
                 }
 
                 if (maskedAction == MotionEvent.ACTION_UP) tracker.clear(keyboard);
@@ -509,29 +565,24 @@ public final class MainHook extends XposedModule {
             InputMethodService ime = imeRef.get();
             if (ime == null) ime = findIme(context);
             if (ime == null) {
-                reportAlways(context, "动作失败：未取得输入法服务", key, actionName, null);
+                logError("action failed: no input method service", null);
                 return;
             }
             imeRef = new WeakReference<>(ime);
 
             EditorInfo editorInfo = ime.getCurrentInputEditorInfo();
-            if (editorInfo != null && isPassword(editorInfo.inputType)) {
-                reportAlways(context, "密码输入框已禁用快捷操作", key, actionName, null);
-                return;
-            }
+            if (editorInfo != null && isPassword(editorInfo.inputType)) return;
 
             InputConnection connection = ime.getCurrentInputConnection();
             if (connection == null) {
-                reportAlways(context, "动作失败：当前没有输入连接", key, actionName, null);
+                logError("action failed: no input connection", null);
                 return;
             }
 
             boolean success = performMenuAction(ime, connection, Config.menuIdFor(action));
-            if (success) reportDebug(context, actionName + "执行成功", key, actionName, null);
-            else reportAlways(context, actionName + "执行失败", key, actionName, "目标输入框不支持该动作");
+            if (!success) logError(actionName + " failed: target editor rejected action", null);
         } catch (Throwable throwable) {
             logError("action failed", throwable);
-            reportAlways(context, actionName + "执行异常", key, actionName, String.valueOf(throwable));
         }
     }
 
@@ -614,27 +665,6 @@ public final class MainHook extends XposedModule {
                 && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
     }
 
-    private void reportDebug(Context context, String status, String key, String action, String error) {
-        if (!cachedConfig.diagnostic) return;
-        reportAlways(context, status, key, action, error);
-    }
-
-    private void reportAlways(Context context, String status, String key, String action, String error) {
-        if (context == null) context = contextRef.get();
-        if (context == null) return;
-        try {
-            Intent intent = new Intent(Config.ACTION_DIAGNOSTIC);
-            intent.setPackage(MODULE);
-            if (status != null) intent.putExtra(Config.DIAG_STATUS, status);
-            if (key != null) intent.putExtra(Config.DIAG_LAST_KEY, key.toUpperCase(Locale.ROOT));
-            if (action != null) intent.putExtra(Config.DIAG_LAST_ACTION, action);
-            intent.putExtra(Config.DIAG_LAST_ERROR, error == null ? "" : error);
-            context.sendBroadcast(intent);
-        } catch (Throwable throwable) {
-            logError("diagnostic broadcast failed", throwable);
-        }
-    }
-
     private static int dp(View view, int value) {
         return Math.max(1, Math.round(value * view.getResources().getDisplayMetrics().density));
     }
@@ -644,7 +674,10 @@ public final class MainHook extends XposedModule {
     }
 
     private void logError(String message, Throwable throwable) {
-        try { log(Log.ERROR, TAG, message, throwable); } catch (Throwable ignored) {}
+        try {
+            if (throwable == null) log(Log.ERROR, TAG, message);
+            else log(Log.ERROR, TAG, message, throwable);
+        } catch (Throwable ignored) {}
     }
 
     private static final class GestureTracker {

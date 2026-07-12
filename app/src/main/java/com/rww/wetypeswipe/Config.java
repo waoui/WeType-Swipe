@@ -4,9 +4,10 @@ import java.util.Arrays;
 import java.util.Locale;
 
 final class Config {
-    static final String ACTION_DIAGNOSTIC = "com.rww.wetypeswipe.DIAGNOSTIC";
     static final String ACTION_CONFIG_CHANGED = "com.rww.wetypeswipe.CONFIG_CHANGED";
     static final String PREFS = "gesture_config";
+    static final String TARGET_CACHE_PREFS = "wetype_swipe_module_cache_v1";
+    static final String EXTRA_SNAPSHOT = "config_snapshot";
 
     static final String KEY_SELECT_ALL = "select_all";
     static final String KEY_CUT = "cut";
@@ -16,8 +17,8 @@ final class Config {
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
     static final String KEY_VIBRATION = "vibration";
-    static final String KEY_DIAGNOSTIC = "diagnostic";
     static final String KEY_HIDE_ICON = "hide_icon";
+    static final String KEY_REVISION = "revision";
 
     static final String KEY_T9_2 = "t9_key_2";
     static final String KEY_T9_3 = "t9_key_3";
@@ -28,11 +29,6 @@ final class Config {
     static final String KEY_T9_8 = "t9_key_8";
     static final String KEY_T9_9 = "t9_key_9";
 
-    static final String DIAG_STATUS = "diag_status";
-    static final String DIAG_LAST_KEY = "diag_last_key";
-    static final String DIAG_LAST_ACTION = "diag_last_action";
-    static final String DIAG_LAST_ERROR = "diag_last_error";
-    static final String DIAG_UPDATED_AT = "diag_updated_at";
 
     static final int ACTION_NONE = 0;
     static final int ACTION_SELECT_ALL = 1;
@@ -53,7 +49,7 @@ final class Config {
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
     boolean vibration = true;
-    boolean diagnostic = false;
+    int revision = 0;
 
     final int[] t9Actions = new int[10];
     private final int[] actionMap = new int[26];
@@ -121,6 +117,13 @@ final class Config {
 
     boolean hasAnyBinding() {
         return hasAnyBinding;
+    }
+
+    boolean hasT9Binding() {
+        for (int digit = 2; digit <= 9; digit++) {
+            if (validAction(t9Actions[digit]) != ACTION_NONE) return true;
+        }
+        return false;
     }
 
     static int validAction(int action) {

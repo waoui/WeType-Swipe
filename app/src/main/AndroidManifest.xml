@@ -28,19 +28,5 @@
             </intent-filter>
         </activity-alias>
 
-        <provider
-            android:name=".ConfigProvider"
-            android:authorities="com.rww.wetypeswipe.config"
-            android:exported="true"
-            android:grantUriPermissions="false" />
-
-        <receiver
-            android:name=".DiagnosticReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.rww.wetypeswipe.DIAGNOSTIC" />
-            </intent-filter>
-        </receiver>
     </application>
-
 </manifest>

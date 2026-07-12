@@ -9,7 +9,6 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.InputFilter;
 import android.text.InputType;
-import android.text.format.DateFormat;
 import android.view.Gravity;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -22,7 +21,6 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Locale;
 
@@ -33,9 +31,7 @@ public final class MainActivity extends Activity {
     private EditText selectAll, cut, copy, paste, disabledKeys;
     private SeekBar threshold, t9Threshold;
     private TextView thresholdValue, t9ThresholdValue;
-    private TextView diagnostic;
     private CheckBox vibration;
-    private CheckBox diagnosticMode;
     private CheckBox hideIcon;
     private final Spinner[] t9Spinners = new Spinner[10];
 
@@ -54,7 +50,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         root.addView(title);
 
-        TextView version = text("v1.8.0 · Modern Xposed API 102 · 新增九宫格适配", 13);
+        TextView version = text("v1.8.6 · Modern Xposed API 102 · 九宫格配置缓存同步", 13);
         version.setPadding(0, dp(4), 0, dp(12));
         root.addView(version);
 
@@ -112,11 +108,6 @@ public final class MainActivity extends Activity {
         vibrationNote.setPadding(dp(32), 0, 0, dp(4));
         root.addView(vibrationNote);
 
-        diagnosticMode = new CheckBox(this);
-        diagnosticMode.setText("诊断模式（仅排查问题时开启）");
-        diagnosticMode.setTextSize(16);
-        diagnosticMode.setChecked(prefs.getBoolean(Config.KEY_DIAGNOSTIC, false));
-        root.addView(diagnosticMode);
 
         hideIcon = new CheckBox(this);
         hideIcon.setText("隐藏桌面图标（隐藏后可从 LSPosed 模块设置进入）");
@@ -131,31 +122,18 @@ public final class MainActivity extends Activity {
         root.addView(save, buttonParams);
         save.setOnClickListener(view -> save());
 
-        addSection(root, "运行状态");
-        diagnostic = text("", 14);
-        diagnostic.setPadding(dp(12), dp(12), dp(12), dp(12));
-        root.addView(diagnostic, new LinearLayout.LayoutParams(-1, -2));
-
-        Button refresh = new Button(this);
-        refresh.setText("刷新运行状态");
-        LinearLayout.LayoutParams refreshParams = new LinearLayout.LayoutParams(-1, dp(48));
-        refreshParams.topMargin = dp(10);
-        root.addView(refresh, refreshParams);
-        refresh.setOnClickListener(view -> refreshDiagnostic());
 
         TextView footer = text(
-                "v1.8 保留 v1.7 稳定触摸链路；只在按下时识别实体键，移动过程中仅进行数值判断。九宫格仅处理 2–9，特殊键不参与。",
+                "配置保存时会同步到微信输入法自身缓存；九宫格子进程首次启动即可读取。",
                 13);
         footer.setPadding(0, dp(14), 0, 0);
         root.addView(footer);
 
         setContentView(scroll);
-        refreshDiagnostic();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (diagnostic != null) refreshDiagnostic();
         if (hideIcon != null) hideIcon.setChecked(isLauncherIconHidden());
     }
 
@@ -253,6 +231,7 @@ public final class MainActivity extends Activity {
         }
 
         boolean shouldHideIcon = hideIcon.isChecked();
+        int revision = prefs.getInt(Config.KEY_REVISION, 0) + 1;
         SharedPreferences.Editor editor = prefs.edit()
                 .putString(Config.KEY_SELECT_ALL, functionKeys[0])
                 .putString(Config.KEY_CUT, functionKeys[1])
@@ -266,8 +245,8 @@ public final class MainActivity extends Activity {
                 .putInt(Config.KEY_THRESHOLD, threshold.getProgress() + 6)
                 .putInt(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10)
                 .putBoolean(Config.KEY_VIBRATION, vibration.isChecked())
-                .putBoolean(Config.KEY_DIAGNOSTIC, diagnosticMode.isChecked())
-                .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon);
+                .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon)
+                .putInt(Config.KEY_REVISION, revision);
 
         for (int digit = 2; digit <= 9; digit++) {
             editor.putInt(Config.t9PrefKey(digit), t9Spinners[digit].getSelectedItemPosition());
@@ -278,13 +257,28 @@ public final class MainActivity extends Activity {
             return;
         }
 
+        // 将完整配置随显式广播发送给微信输入法的常驻进程。
+        // 常驻进程会写入微信输入法自身的私有缓存，后续九宫格 :hld 子进程启动时直接读取。
         Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
         changed.setPackage("com.tencent.wetype");
+        changed.putExtra(Config.EXTRA_SNAPSHOT, true);
+        changed.putExtra(Config.KEY_SELECT_ALL, functionKeys[0]);
+        changed.putExtra(Config.KEY_CUT, functionKeys[1]);
+        changed.putExtra(Config.KEY_COPY, functionKeys[2]);
+        changed.putExtra(Config.KEY_PASTE, functionKeys[3]);
+        changed.putExtra(Config.KEY_DISABLED_KEYS, disabled);
+        changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
+        changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
+        changed.putExtra(Config.KEY_VIBRATION, vibration.isChecked());
+        changed.putExtra(Config.KEY_REVISION, revision);
+        for (int digit = 2; digit <= 9; digit++) {
+            changed.putExtra(Config.t9PrefKey(digit), t9Spinners[digit].getSelectedItemPosition());
+        }
         sendBroadcast(changed);
 
         setLauncherIconHidden(shouldHideIcon);
         Toast.makeText(this,
-                shouldHideIcon ? "已保存并隐藏桌面图标，可从 LSPosed 模块设置重新进入" : "已保存，输入法进程会自动刷新配置",
+                shouldHideIcon ? "已保存并隐藏桌面图标，可从 LSPosed 模块设置重新进入" : "已保存，配置将在输入法中自动生效",
                 Toast.LENGTH_LONG).show();
     }
 
@@ -304,22 +298,6 @@ public final class MainActivity extends Activity {
                 ? PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                 : PackageManager.COMPONENT_ENABLED_STATE_ENABLED;
         getPackageManager().setComponentEnabledSetting(component, state, PackageManager.DONT_KILL_APP);
-    }
-
-    private void refreshDiagnostic() {
-        String status = prefs.getString(Config.DIAG_STATUS, "尚未收到微信输入法进程的状态");
-        String key = prefs.getString(Config.DIAG_LAST_KEY, "—");
-        String action = prefs.getString(Config.DIAG_LAST_ACTION, "—");
-        String error = prefs.getString(Config.DIAG_LAST_ERROR, "");
-        long updated = prefs.getLong(Config.DIAG_UPDATED_AT, 0L);
-        String time = updated > 0 ? DateFormat.format("yyyy-MM-dd HH:mm:ss", new Date(updated)).toString() : "—";
-        StringBuilder value = new StringBuilder();
-        value.append("状态：").append(status)
-                .append("\n最后识别按键：").append(key)
-                .append("\n最后动作：").append(action)
-                .append("\n更新时间：").append(time);
-        if (!error.isEmpty()) value.append("\n错误：").append(error);
-        diagnostic.setText(value.toString());
     }
 
     private String key(EditText editText) {
