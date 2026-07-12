@@ -16,6 +16,7 @@ import android.util.Log;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
@@ -23,6 +24,7 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.SurroundingText;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Locale;
@@ -50,6 +52,16 @@ public final class MainHook extends XposedModule {
     private volatile int currentSelectionStart = -1;
     private volatile int currentSelectionEnd = -1;
     private volatile Class<?> selectionHookedClass;
+    private volatile WeakReference<View> toolbarCarrierRootRef = new WeakReference<>(null);
+    private volatile WeakReference<View> toolbarCarrierSourceRef = new WeakReference<>(null);
+    private volatile WeakReference<View> toolbarCarrierArgumentRef = new WeakReference<>(null);
+    private volatile Object toolbarCarrierCallback;
+    private volatile Object toolbarCarrierHolder;
+    private volatile Field toolbarCarrierFunctionField;
+    private volatile Field toolbarCarrierCategoryField;
+    private volatile Field toolbarCarrierGroupField;
+    private volatile Method toolbarCarrierInvokeMethod;
+    private volatile Object toolbarPermanentCategory;
     private BroadcastReceiver configReceiver;
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -60,7 +72,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.9.4 entered target package");
+            logInfo("v1.10.0 entered target package");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -139,6 +151,8 @@ public final class MainHook extends XposedModule {
             return;
         }
 
+        InputMethodService previousIme = imeRef.get();
+        if (previousIme != ime) clearToolbarCarrierCache();
         imeRef = new WeakReference<>(ime);
         ensureConfigSync(ime);
         ensureConcreteSelectionHook(ime.getClass());
@@ -229,6 +243,8 @@ public final class MainHook extends XposedModule {
             config.paragraphEnd = intent.getStringExtra(Config.KEY_PARAGRAPH_END);
             config.selectToParagraphStart = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_START);
             config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);
+            config.openClipboard = intent.getStringExtra(Config.KEY_OPEN_CLIPBOARD);
+            config.openQuickPhrase = intent.getStringExtra(Config.KEY_OPEN_QUICK_PHRASE);
             config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);
             if (config.selectAll == null) config.selectAll = "z";
             if (config.cut == null) config.cut = "x";
@@ -238,6 +254,8 @@ public final class MainHook extends XposedModule {
             if (config.paragraphEnd == null) config.paragraphEnd = "";
             if (config.selectToParagraphStart == null) config.selectToParagraphStart = "";
             if (config.selectToParagraphEnd == null) config.selectToParagraphEnd = "";
+            if (config.openClipboard == null) config.openClipboard = "";
+            if (config.openQuickPhrase == null) config.openQuickPhrase = "";
             if (config.disabledKeys == null) config.disabledKeys = "";
             config.thresholdDp = clamp(intent.getIntExtra(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(intent.getIntExtra(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -267,6 +285,8 @@ public final class MainHook extends XposedModule {
                     .putString(Config.KEY_PARAGRAPH_END, config.paragraphEnd)
                     .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, config.selectToParagraphStart)
                     .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, config.selectToParagraphEnd)
+                    .putString(Config.KEY_OPEN_CLIPBOARD, config.openClipboard)
+                    .putString(Config.KEY_OPEN_QUICK_PHRASE, config.openQuickPhrase)
                     .putString(Config.KEY_DISABLED_KEYS, config.disabledKeys)
                     .putInt(Config.KEY_THRESHOLD, config.thresholdDp)
                     .putInt(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp)
@@ -298,6 +318,8 @@ public final class MainHook extends XposedModule {
             config.paragraphEnd = prefs.getString(Config.KEY_PARAGRAPH_END, "");
             config.selectToParagraphStart = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, "");
             config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");
+            config.openClipboard = prefs.getString(Config.KEY_OPEN_CLIPBOARD, "");
+            config.openQuickPhrase = prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, "");
             config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");
             config.thresholdDp = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -410,7 +432,7 @@ public final class MainHook extends XposedModule {
                 }
 
                 if (requestedAction != Config.ACTION_DISABLE) {
-                    keyboard.post(() -> performAction(context, requestedAction, key));
+                    keyboard.post(() -> performAction(context, keyboard, requestedAction, key));
                 }
 
                 if (maskedAction == MotionEvent.ACTION_UP) tracker.clear(keyboard);
@@ -489,8 +511,19 @@ public final class MainHook extends XposedModule {
 
     private static String normalizeText(Object value) {
         if (value == null) return "";
-        return String.valueOf(value).trim().toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]", "");
+        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        StringBuilder clean = null;
+        for (int index = 0; index < text.length(); index++) {
+            char c = text.charAt(index);
+            boolean allowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+            if (allowed) {
+                if (clean != null) clean.append(c);
+            } else if (clean == null) {
+                clean = new StringBuilder(text.length());
+                clean.append(text, 0, index);
+            }
+        }
+        return clean == null ? text : clean.toString();
     }
 
     private static String numericT9Key(Object value) {
@@ -504,16 +537,26 @@ public final class MainHook extends XposedModule {
 
     private static String t9DigitFromLetters(String value) {
         if (value == null || value.isEmpty()) return null;
-        String letters = value.replaceAll("[^a-z]", "");
-        if (letters.equals("abc")) return "2";
-        if (letters.equals("def")) return "3";
-        if (letters.equals("ghi")) return "4";
-        if (letters.equals("jkl")) return "5";
-        if (letters.equals("mno")) return "6";
-        if (letters.equals("pqrs")) return "7";
-        if (letters.equals("tuv")) return "8";
-        if (letters.equals("wxyz")) return "9";
+        if (lettersMatch(value, "abc")) return "2";
+        if (lettersMatch(value, "def")) return "3";
+        if (lettersMatch(value, "ghi")) return "4";
+        if (lettersMatch(value, "jkl")) return "5";
+        if (lettersMatch(value, "mno")) return "6";
+        if (lettersMatch(value, "pqrs")) return "7";
+        if (lettersMatch(value, "tuv")) return "8";
+        if (lettersMatch(value, "wxyz")) return "9";
         return null;
+    }
+
+    private static boolean lettersMatch(String value, String expected) {
+        int matched = 0;
+        for (int index = 0; index < value.length(); index++) {
+            char c = value.charAt(index);
+            if (c < 'a' || c > 'z') continue;
+            if (matched >= expected.length() || c != expected.charAt(matched)) return false;
+            matched++;
+        }
+        return matched == expected.length();
     }
 
     private static KeyInfo keyFromId(Object value, Object keyboard, Object button, Object keyData) {
@@ -619,7 +662,7 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private void performAction(Context context, int action, String key) {
+    private void performAction(Context context, View keyboard, int action, String key) {
         String actionName = Config.actionName(action);
         try {
             InputMethodService ime = imeRef.get();
@@ -632,6 +675,13 @@ public final class MainHook extends XposedModule {
 
             EditorInfo editorInfo = ime.getCurrentInputEditorInfo();
             if (editorInfo != null && isPassword(editorInfo.inputType)) return;
+
+            if (isNativePanelAction(action)) {
+                if (!openNativePanel(ime, keyboard, action)) {
+                    logError(actionName + " failed: native entry not found", null);
+                }
+                return;
+            }
 
             InputConnection connection = ime.getCurrentInputConnection();
             if (connection == null) {
@@ -651,6 +701,263 @@ public final class MainHook extends XposedModule {
         }
     }
 
+
+
+    private static boolean isNativePanelAction(int action) {
+        return action == Config.ACTION_OPEN_CLIPBOARD
+                || action == Config.ACTION_OPEN_QUICK_PHRASE;
+    }
+
+    private boolean openNativePanel(InputMethodService ime, View keyboard, int action) {
+        View root = keyboardWindowRoot(keyboard);
+        if (root == null) root = imeRootView(ime);
+        if (root == null) return false;
+        return invokeToolbarCommandCarrier(root, action);
+    }
+
+    private static View keyboardWindowRoot(View keyboard) {
+        if (keyboard == null) return null;
+        try {
+            View root = keyboard.getRootView();
+            return root == null ? keyboard : root;
+        } catch (Throwable ignored) {
+            return keyboard;
+        }
+    }
+
+    private static View imeRootView(InputMethodService ime) {
+        try {
+            if (ime == null || ime.getWindow() == null || ime.getWindow().getWindow() == null) return null;
+            return ime.getWindow().getWindow().getDecorView();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+
+    private boolean invokeToolbarCommandCarrier(View root, int action) {
+        int targetFunction = action == Config.ACTION_OPEN_CLIPBOARD ? 4 : 8;
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (!resolveToolbarCommandCarrier(root)) {
+                if (attempt == 0) {
+                    clearToolbarCarrierCache();
+                    continue;
+                }
+                logError(Config.actionName(action) + " failed: toolbar command carrier unavailable", null);
+                return false;
+            }
+
+            View source = toolbarCarrierSourceRef.get();
+            Object callback = toolbarCarrierCallback;
+            Object holder = toolbarCarrierHolder;
+            Field functionField = toolbarCarrierFunctionField;
+            Field categoryField = toolbarCarrierCategoryField;
+            Field groupField = toolbarCarrierGroupField;
+            Method invokeMethod = toolbarCarrierInvokeMethod;
+
+            if (source == null || !source.isAttachedToWindow()
+                    || callback == null || holder == null
+                    || functionField == null || invokeMethod == null) {
+                clearToolbarCarrierCache();
+                continue;
+            }
+
+            Object oldFunction = null;
+            Object oldCategory = null;
+            Object oldGroup = null;
+            boolean functionChanged = false;
+            boolean categoryChanged = false;
+            boolean groupChanged = false;
+            try {
+                oldFunction = functionField.get(holder);
+                functionField.set(holder, targetFunction);
+                functionChanged = true;
+
+                if (categoryField != null && toolbarPermanentCategory != null) {
+                    oldCategory = categoryField.get(holder);
+                    categoryField.set(holder, toolbarPermanentCategory);
+                    categoryChanged = true;
+                }
+                if (groupField != null) {
+                    oldGroup = groupField.get(holder);
+                    groupField.set(holder, 6);
+                    groupChanged = true;
+                }
+
+                View argument = toolbarCarrierArgumentRef.get();
+                if (argument == null) argument = source;
+                invokeMethod.invoke(callback, argument);
+                return true;
+            } catch (Throwable throwable) {
+                clearToolbarCarrierCache();
+                if (attempt == 1) {
+                    logError("toolbar-command-carrier failed action=" + Config.actionName(action), throwable);
+                    return false;
+                }
+            } finally {
+                try { if (functionChanged) functionField.set(holder, oldFunction); } catch (Throwable ignored) {}
+                try { if (categoryChanged) categoryField.set(holder, oldCategory); } catch (Throwable ignored) {}
+                try { if (groupChanged) groupField.set(holder, oldGroup); } catch (Throwable ignored) {}
+            }
+        }
+        return false;
+    }
+
+    private boolean resolveToolbarCommandCarrier(View root) {
+        View cachedRoot = toolbarCarrierRootRef.get();
+        View cachedSource = toolbarCarrierSourceRef.get();
+        if (cachedRoot == root
+                && cachedSource != null && cachedSource.isAttachedToWindow()
+                && toolbarCarrierCallback != null
+                && toolbarCarrierHolder != null
+                && toolbarCarrierFunctionField != null
+                && toolbarCarrierInvokeMethod != null) {
+            return true;
+        }
+
+        clearToolbarCarrierCache();
+        Object[] carrier = findToolbarCommandCarrier(root);
+        if (carrier == null) return false;
+
+        View source = (View) carrier[0];
+        Object callback = carrier[2];
+        Object holder = readNamedField(callback, "this$0");
+        if (source == null || callback == null || holder == null) return false;
+
+        Field functionField = findNamedField(holder.getClass(), "f");
+        if (functionField == null) return false;
+        Field categoryField = findNamedField(holder.getClass(), "g");
+        Field groupField = findNamedField(holder.getClass(), "h");
+        Method invokeMethod = findCompatibleInvoke(callback.getClass());
+        if (invokeMethod == null) return false;
+
+        Object permanent = categoryField == null ? null : enumConstant(categoryField.getType(), "Permanent");
+        Object capturedView = readNamedField(callback, "$this_apply");
+        View argument = capturedView instanceof View ? (View) capturedView : source;
+
+        toolbarCarrierRootRef = new WeakReference<>(root);
+        toolbarCarrierSourceRef = new WeakReference<>(source);
+        toolbarCarrierArgumentRef = new WeakReference<>(argument);
+        toolbarCarrierCallback = callback;
+        toolbarCarrierHolder = holder;
+        toolbarCarrierFunctionField = functionField;
+        toolbarCarrierCategoryField = categoryField;
+        toolbarCarrierGroupField = groupField;
+        toolbarCarrierInvokeMethod = invokeMethod;
+        toolbarPermanentCategory = permanent;
+        return true;
+    }
+
+    private void clearToolbarCarrierCache() {
+        toolbarCarrierRootRef = new WeakReference<>(null);
+        toolbarCarrierSourceRef = new WeakReference<>(null);
+        toolbarCarrierArgumentRef = new WeakReference<>(null);
+        toolbarCarrierCallback = null;
+        toolbarCarrierHolder = null;
+        toolbarCarrierFunctionField = null;
+        toolbarCarrierCategoryField = null;
+        toolbarCarrierGroupField = null;
+        toolbarCarrierInvokeMethod = null;
+        toolbarPermanentCategory = null;
+    }
+
+    private Object[] findToolbarCommandCarrier(View view) {
+        if (view == null) return null;
+        try {
+            if (view.hasOnClickListeners() || view.isClickable()) {
+                View.OnClickListener listener = readOnClickListener(view);
+                if (listener != null && "com.tencent.wetype.plugin.hld.utils.h3".equals(listener.getClass().getName())) {
+                    Object callback = readNamedField(listener, "c");
+                    if (callback != null
+                            && "com.tencent.wetype.plugin.hld.toolbar.a0$b".equals(callback.getClass().getName())
+                            && readNamedField(callback, "this$0") != null) {
+                        return new Object[]{view, listener, callback};
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int index = 0; index < group.getChildCount(); index++) {
+                Object[] result = findToolbarCommandCarrier(group.getChildAt(index));
+                if (result != null) return result;
+            }
+        }
+        return null;
+    }
+
+    private static Field findNamedField(Class<?> type, String name) {
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            try {
+                Field field = current.getDeclaredField(name);
+                field.setAccessible(true);
+                return field;
+            } catch (NoSuchFieldException ignored) {
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static Object enumConstant(Class<?> type, String name) {
+        if (type == null || !type.isEnum()) return null;
+        try {
+            Object[] constants = type.getEnumConstants();
+            if (constants == null) return null;
+            for (Object constant : constants) {
+                if (name.equals(String.valueOf(constant))) return constant;
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    private static View.OnClickListener readOnClickListener(View view) {
+        if (view == null) return null;
+        try {
+            Method method = View.class.getDeclaredMethod("getListenerInfo");
+            method.setAccessible(true);
+            Object listenerInfo = method.invoke(view);
+            if (listenerInfo == null) return null;
+            Field field = listenerInfo.getClass().getDeclaredField("mOnClickListener");
+            field.setAccessible(true);
+            Object value = field.get(listenerInfo);
+            return value instanceof View.OnClickListener ? (View.OnClickListener) value : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Object readNamedField(Object object, String name) {
+        if (object == null || name == null) return null;
+        for (Class<?> type = object.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                return field.get(object);
+            } catch (NoSuchFieldException ignored) {
+            } catch (Throwable ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static Method findCompatibleInvoke(Class<?> type) {
+        if (type == null) return null;
+        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
+            Method[] methods;
+            try { methods = current.getDeclaredMethods(); }
+            catch (Throwable ignored) { continue; }
+            for (Method method : methods) {
+                if (!"invoke".equals(method.getName()) || method.getParameterTypes().length != 1) continue;
+                try { method.setAccessible(true); } catch (Throwable ignored) {}
+                return method;
+            }
+        }
+        return null;
+    }
 
     private static boolean isParagraphAction(int action) {
         return action == Config.ACTION_PARAGRAPH_START
