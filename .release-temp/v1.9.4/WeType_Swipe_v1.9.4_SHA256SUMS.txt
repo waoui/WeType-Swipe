@@ -1,0 +1,3 @@
+c53963ea23ebc36b5fd93bef17db2ffc6571cf30412e3484be52597ce76b95b5  WeType_Swipe_LSPosed_v1.9.4.apk
+7790e0578472f1f50081804b9c45c51d46b8ce3c17a404ecfb77309deec07733  WeType_Swipe_LSPosed_v1.9.4_source.zip
+Certificate SHA-256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
