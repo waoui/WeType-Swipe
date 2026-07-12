@@ -1,0 +1,70 @@
+name: Finalize v1.10.0 production source
+
+on:
+  push:
+    branches: [trigger-v1.10.0]
+    paths:
+      - ".github/workflows/finalize-v1.10.0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: trigger-v1.10.0
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Generate clean production source
+        run: python3 tools/finalize_v110.py
+
+      - name: Verify test files are removed
+        shell: bash
+        run: |
+          test ! -e tools/finalize_v110.py
+          test -z "$(find tools -maxdepth 1 -name 'patch_v110_test*.py' -print -quit)"
+          test -z "$(find .github/workflows -maxdepth 1 -name 'test-v1.10.0*.yml' -print -quit)"
+          grep -q 'versionName = "1.10.0"' app/build.gradle.kts
+          ! grep -q 'test11' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+
+      - name: Restore signing certificate
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          test -n "$SIGNING_KEY_BASE64"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > signing.jks
+
+      - name: Build clean signed APK
+        shell: bash
+        env:
+          SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: gradle --no-daemon clean assembleRelease
+
+      - name: Commit production source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: finalize v1.10.0 production source"
+          git push origin HEAD:trigger-v1.10.0
+
+      - if: always()
+        run: rm -f signing.jks
