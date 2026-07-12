@@ -1,34 +1,24 @@
-name: 准备 v1.10.0 原生面板功能
+name: 生成 v1.10.0 测试分支
 
 on:
   push:
-    branches: [main]
+    branches: [trigger-v1.10.0]
     paths:
       - ".github/workflows/prepare-v1.10.0.yml"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  prepare:
+  prepare-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: trigger-v1.10.0
           fetch-depth: 0
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
-      - name: 修改源码
+      - name: 写入测试版源码
         shell: bash
         run: |
           python3 - <<'PY'
@@ -39,7 +29,7 @@ jobs:
               text = p.read_text(encoding="utf-8")
               actual = text.count(old)
               if actual != count:
-                  raise SystemExit(f"{path}: expected {count} matches, found {actual}: {old[:80]!r}")
+                  raise SystemExit(f"{path}: expected {count} matches, found {actual}: {old[:100]!r}")
               p.write_text(text.replace(old, new, count), encoding="utf-8")
 
           config = "app/src/main/java/com/rww/wetypeswipe/Config.java"
@@ -72,8 +62,9 @@ jobs:
           replace(activity,
               '            "段首", "段尾", "选至段首", "选至段尾"\n    };',
               '            "段首", "段尾", "选至段首", "选至段尾",\n            "剪贴板", "快捷发送"\n    };')
-          replace(activity, 'TextView version = text("v1.9.4 · 点击键位设置下滑动作", 13, COLOR_SECONDARY);',
-                            'TextView version = text("v1.10.0 · 新增原生剪贴板与快捷发送", 13, COLOR_SECONDARY);')
+          replace(activity,
+              'TextView version = text("v1.9.4 · 点击键位设置下滑动作", 13, COLOR_SECONDARY);',
+              'TextView version = text("v1.10.0 测试版 · 原生剪贴板与快捷发送", 13, COLOR_SECONDARY);')
           replace(activity,
               '        qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));\n        disabledKeys = normalizedKeys',
               '        qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));\n        qwertyKeys[8] = normalizedKey(prefs.getString(Config.KEY_OPEN_CLIPBOARD, ""));\n        qwertyKeys[9] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));\n        disabledKeys = normalizedKeys')
@@ -90,7 +81,7 @@ jobs:
           hook = "app/src/main/java/com/rww/wetypeswipe/MainHook.java"
           replace(hook, 'import android.view.View;\n', 'import android.view.View;\nimport android.view.ViewGroup;\n')
           replace(hook, 'import android.view.inputmethod.SurroundingText;\n', 'import android.view.inputmethod.SurroundingText;\nimport android.widget.TextView;\n')
-          replace(hook, 'logInfo("v1.9.4 entered target package");', 'logInfo("v1.10.0 entered target package");')
+          replace(hook, 'logInfo("v1.9.4 entered target package");', 'logInfo("v1.10.0-test1 entered target package");')
           replace(hook,
               '            config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);\n            config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);',
               '            config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);\n            config.openClipboard = intent.getStringExtra(Config.KEY_OPEN_CLIPBOARD);\n            config.openQuickPhrase = intent.getStringExtra(Config.KEY_OPEN_QUICK_PHRASE);\n            config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);')
@@ -104,7 +95,7 @@ jobs:
               '            config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");\n            config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");',
               '            config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");\n            config.openClipboard = prefs.getString(Config.KEY_OPEN_CLIPBOARD, "");\n            config.openQuickPhrase = prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, "");\n            config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");')
 
-          old_perform = '''    private void performAction(Context context, int action, String key) {
+          old = '''    private void performAction(Context context, int action, String key) {
               String actionName = Config.actionName(action);
               try {
                   InputMethodService ime = imeRef.get();
@@ -136,7 +127,7 @@ jobs:
               }
           }
           '''
-          new_perform = '''    private void performAction(Context context, int action, String key) {
+          new = '''    private void performAction(Context context, int action, String key) {
               String actionName = Config.actionName(action);
               try {
                   InputMethodService ime = imeRef.get();
@@ -279,52 +270,64 @@ jobs:
                       .replace("-", "");
           }
           '''
-          replace(hook, old_perform, new_perform)
+          replace(hook, old, new)
 
           gradle = "app/build.gradle.kts"
           replace(gradle, 'versionCode = 21\n        versionName = "1.9.4"',
-                          'versionCode = 22\n        versionName = "1.10.0"')
+                          'versionCode = 22\n        versionName = "1.10.0-test1"')
 
-          readme = Path("README.md")
-          text = readme.read_text(encoding="utf-8")
-          text = text.replace("当前稳定版本：v1.9.4", "当前稳定版本：v1.10.0")
-          text = text.replace("releases/download/v1.9.4/WeType_Swipe_LSPosed_v1.9.4.apk",
-                              "releases/download/v1.10.0/WeType_Swipe_LSPosed_v1.10.0.apk")
-          text = text.replace("直接下载 v1.9.4 APK", "直接下载 v1.10.0 APK")
-          marker = "## v1.9.4\n"
-          section = "## v1.10.0\n\n- 新增下滑打开微信输入法原生剪贴板\n- 新增下滑打开微信输入法原生快捷发送（常用语）\n- 支持从工具栏或更多工具面板动态定位原生入口\n- 原生入口识别失败时安全退出，不影响正常输入\n\n"
-          if section not in text:
-              if marker not in text: raise SystemExit("README version marker missing")
-              text = text.replace(marker, section + marker, 1)
-          readme.write_text(text, encoding="utf-8")
+          Path(".github/workflows/test-v1.10.0.yml").write_text('''name: 构建 v1.10.0 测试包
 
-          release = Path(".github/workflows/release.yml")
-          text = release.read_text(encoding="utf-8")
-          text = text.replace("release-v1.9.4", "release-v1.10.0")
-          text = text.replace('VERSION: "1.9.4"', 'VERSION: "1.10.0"')
-          text = text.replace('TAG: "v1.9.4"', 'TAG: "v1.10.0"')
-          start = text.index("          ### 新增功能\n")
-          end = text.index("          EOF\n", start)
-          notes = '''          ### 新增功能
+          on:
+            pull_request:
+              branches: [main]
+              paths:
+                - "app/**"
+                - ".github/workflows/test-v1.10.0.yml"
 
-          - 剪贴板：下滑直接打开微信输入法原生剪贴板面板
-          - 快捷发送：下滑直接打开微信输入法原生快捷发送（常用语）面板
-          - 26 键和九宫格均可绑定这两个原生面板动作
+          permissions:
+            contents: read
 
-          ### 实现改进
-
-          - 优先识别当前工具栏中的原生入口
-          - 入口位于“更多”时自动打开更多工具并继续定位
-          - 识别失败时安全退出，不影响正常输入
-'''
-          text = text[:start] + notes + text[end:]
-          release.write_text(text, encoding="utf-8")
+          jobs:
+            build-test-apk:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-java@v4
+                  with:
+                    distribution: temurin
+                    java-version: "17"
+                - uses: gradle/actions/setup-gradle@v4
+                  with:
+                    gradle-version: "8.9"
+                - name: 恢复正式签名证书
+                  shell: bash
+                  env:
+                    SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+                  run: printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > signing.jks
+                - name: 编译同签名测试包
+                  shell: bash
+                  env:
+                    SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+                    SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+                    SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+                    SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+                  run: gradle --no-daemon clean assembleRelease
+                - name: 整理测试 APK
+                  run: |
+                    mkdir -p output
+                    cp app/build/outputs/apk/release/app-release.apk output/WeType_Swipe_LSPosed_v1.10.0-test1.apk
+                - uses: actions/upload-artifact@v4
+                  with:
+                    name: WeType-Swipe-v1.10.0-test1
+                    path: output/WeType_Swipe_LSPosed_v1.10.0-test1.apk
+                    retention-days: 7
+                - if: always()
+                  run: rm -f signing.jks
+          ''').read_text(encoding="utf-8").replace("          ", ""), encoding="utf-8")
           PY
 
-      - name: 编译校验
-        run: gradle --no-daemon clean assembleDebug
-
-      - name: 提交 v1.10.0
+      - name: 提交测试分支源码
         shell: bash
         run: |
           set -euo pipefail
@@ -332,5 +335,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "feat: add native clipboard and quick phrase panels"
-          git push origin main
+          git commit -m "test: add native clipboard and quick phrase actions"
+          git push origin trigger-v1.10.0
