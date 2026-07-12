@@ -13,6 +13,7 @@ on:
   pull_request:
     types:
       - opened
+      - synchronize
 
 permissions:
   contents: write
@@ -32,8 +33,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-out
-          cat .release-temp/v1.9.4/apk/part-* | base64 --decode > release-out/WeType_Swipe_LSPosed_v1.9.4.apk
-          cat .release-temp/v1.9.4/source/part-* | base64 --decode > release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
+          : > release-out/WeType_Swipe_LSPosed_v1.9.4.apk
+          for part in .release-temp/v1.9.4/apk/part-*; do
+            base64 --decode "$part" >> release-out/WeType_Swipe_LSPosed_v1.9.4.apk
+          done
+          : > release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
+          for part in .release-temp/v1.9.4/source/part-*; do
+            base64 --decode "$part" >> release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
+          done
           cp .release-temp/v1.9.4/WeType_Swipe_v1.9.4_SHA256SUMS.txt release-out/
           cp .release-temp/v1.9.4/RELEASE_NOTES.md release-out/
 
