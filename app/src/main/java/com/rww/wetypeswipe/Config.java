@@ -13,6 +13,10 @@ final class Config {
     static final String KEY_CUT = "cut";
     static final String KEY_COPY = "copy";
     static final String KEY_PASTE = "paste";
+    static final String KEY_PARAGRAPH_START = "paragraph_start";
+    static final String KEY_PARAGRAPH_END = "paragraph_end";
+    static final String KEY_SELECT_TO_PARAGRAPH_START = "select_to_paragraph_start";
+    static final String KEY_SELECT_TO_PARAGRAPH_END = "select_to_paragraph_end";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
@@ -29,22 +33,44 @@ final class Config {
     static final String KEY_T9_8 = "t9_key_8";
     static final String KEY_T9_9 = "t9_key_9";
 
-
     static final int ACTION_NONE = 0;
     static final int ACTION_SELECT_ALL = 1;
     static final int ACTION_CUT = 2;
     static final int ACTION_COPY = 3;
     static final int ACTION_PASTE = 4;
+    // Keep 5 stable for backward compatibility with existing saved T9 mappings.
     static final int ACTION_DISABLE = 5;
+    static final int ACTION_PARAGRAPH_START = 6;
+    static final int ACTION_PARAGRAPH_END = 7;
+    static final int ACTION_SELECT_TO_PARAGRAPH_START = 8;
+    static final int ACTION_SELECT_TO_PARAGRAPH_END = 9;
 
-    static final String[] ACTION_LABELS = {
-            "未绑定", "全选", "剪切", "复制", "粘贴", "禁用下滑"
+    static final String[] ACTION_MENU_LABELS = {
+            "未绑定", "全选", "剪切", "复制", "粘贴",
+            "段首", "段尾", "选至段首", "选至段尾", "禁用下滑"
+    };
+
+    private static final int[] ACTION_MENU_VALUES = {
+            ACTION_NONE,
+            ACTION_SELECT_ALL,
+            ACTION_CUT,
+            ACTION_COPY,
+            ACTION_PASTE,
+            ACTION_PARAGRAPH_START,
+            ACTION_PARAGRAPH_END,
+            ACTION_SELECT_TO_PARAGRAPH_START,
+            ACTION_SELECT_TO_PARAGRAPH_END,
+            ACTION_DISABLE
     };
 
     String selectAll = "z";
     String cut = "x";
     String copy = "c";
     String paste = "v";
+    String paragraphStart = "";
+    String paragraphEnd = "";
+    String selectToParagraphStart = "";
+    String selectToParagraphEnd = "";
     String disabledKeys = "";
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
@@ -61,6 +87,10 @@ final class Config {
         bind(cut, ACTION_CUT);
         bind(copy, ACTION_COPY);
         bind(paste, ACTION_PASTE);
+        bind(paragraphStart, ACTION_PARAGRAPH_START);
+        bind(paragraphEnd, ACTION_PARAGRAPH_END);
+        bind(selectToParagraphStart, ACTION_SELECT_TO_PARAGRAPH_START);
+        bind(selectToParagraphEnd, ACTION_SELECT_TO_PARAGRAPH_END);
         bindDisabled(disabledKeys);
 
         hasAnyBinding = false;
@@ -119,15 +149,22 @@ final class Config {
         return hasAnyBinding;
     }
 
-    boolean hasT9Binding() {
-        for (int digit = 2; digit <= 9; digit++) {
-            if (validAction(t9Actions[digit]) != ACTION_NONE) return true;
-        }
-        return false;
+    static int validAction(int action) {
+        return action >= ACTION_NONE && action <= ACTION_SELECT_TO_PARAGRAPH_END
+                ? action : ACTION_NONE;
     }
 
-    static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_DISABLE ? action : ACTION_NONE;
+    static int menuPositionForAction(int action) {
+        int checked = validAction(action);
+        for (int i = 0; i < ACTION_MENU_VALUES.length; i++) {
+            if (ACTION_MENU_VALUES[i] == checked) return i;
+        }
+        return 0;
+    }
+
+    static int actionForMenuPosition(int position) {
+        return position >= 0 && position < ACTION_MENU_VALUES.length
+                ? ACTION_MENU_VALUES[position] : ACTION_NONE;
     }
 
     static String t9PrefKey(int digit) {
@@ -167,7 +204,17 @@ final class Config {
     }
 
     static String actionName(int action) {
-        int checked = validAction(action);
-        return ACTION_LABELS[checked];
+        switch (validAction(action)) {
+            case ACTION_SELECT_ALL: return "全选";
+            case ACTION_CUT: return "剪切";
+            case ACTION_COPY: return "复制";
+            case ACTION_PASTE: return "粘贴";
+            case ACTION_DISABLE: return "禁用下滑";
+            case ACTION_PARAGRAPH_START: return "段首";
+            case ACTION_PARAGRAPH_END: return "段尾";
+            case ACTION_SELECT_TO_PARAGRAPH_START: return "选至段首";
+            case ACTION_SELECT_TO_PARAGRAPH_END: return "选至段尾";
+            default: return "未绑定";
+        }
     }
 }
