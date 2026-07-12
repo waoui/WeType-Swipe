@@ -1,0 +1,40 @@
+name: Apply v1.8.6 clean source
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".release-sync/v1.8.6/READY"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild and verify source payload
+        run: |
+          cat .release-sync/v1.8.6/part-* | base64 -d > /tmp/wetype-v1.8.6-repo.tar.gz
+          echo "f490c8a586dc93f06dba72a57c99b04bc8c7e639cd9a9a6b552a8b7234b70451  /tmp/wetype-v1.8.6-repo.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/wetype-source
+          tar -xzf /tmp/wetype-v1.8.6-repo.tar.gz -C /tmp/wetype-source
+
+      - name: Replace repository with clean source
+        run: |
+          rsync -a --delete --exclude='.git' /tmp/wetype-source/ ./
+          rm -rf .release-sync
+          rm -f .github/workflows/apply-v1.8.6-source.yml
+
+      - name: Commit clean v1.8.6 source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "release: prepare clean v1.8.6 source"
+          git push
