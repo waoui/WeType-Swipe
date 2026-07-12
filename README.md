@@ -41,8 +41,6 @@
 
 需要 JDK 17、Android SDK 35。Modern Xposed API 通过 `compileOnly` 引入，不会打包进 APK。
 
-仓库和源码包不包含发布私钥、keystore、密码或签名配置。
-
 ## 许可
 
 Apache License 2.0。
