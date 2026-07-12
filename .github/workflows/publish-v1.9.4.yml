@@ -23,13 +23,14 @@ jobs:
     if: github.event_name != 'issues' || github.event.issue.title == 'Publish v1.9.4'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          show-progress: false
+      - name: Clone repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh repo clone waoui/WeType-Swipe repo -- --depth 1 --branch main --quiet
 
       - name: Reconstruct release files
+        working-directory: repo
         shell: bash
         run: |
           set -euo pipefail
@@ -39,6 +40,7 @@ jobs:
 
           def decode_parts(folder: str, output: str, expected: str) -> None:
               parts = sorted(Path(folder).glob('part-*'))
+              print('parts:', [str(p) for p in parts])
               if not parts:
                   raise SystemExit(f'No parts found in {folder}')
               texts = [''.join(p.read_text(encoding='utf-8').split()) for p in parts]
@@ -82,6 +84,7 @@ jobs:
           cp .release-temp/v1.9.4/RELEASE_NOTES.md release-out/
 
       - name: Verify release files
+        working-directory: repo
         shell: bash
         run: |
           set -euo pipefail
@@ -90,6 +93,7 @@ jobs:
           unzip -t release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
 
       - name: Create or update GitHub Release
+        working-directory: repo
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -118,6 +122,7 @@ jobs:
 
       - name: Clean temporary release files
         if: github.event_name != 'pull_request'
+        working-directory: repo
         shell: bash
         run: |
           set -euo pipefail
