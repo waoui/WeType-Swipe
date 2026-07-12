@@ -26,21 +26,58 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          show-progress: false
 
       - name: Reconstruct release files
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release-out
-          : > release-out/WeType_Swipe_LSPosed_v1.9.4.apk
-          for part in .release-temp/v1.9.4/apk/part-*; do
-            base64 --decode "$part" >> release-out/WeType_Swipe_LSPosed_v1.9.4.apk
-          done
-          : > release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
-          for part in .release-temp/v1.9.4/source/part-*; do
-            base64 --decode "$part" >> release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
-          done
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+
+          def decode_parts(folder: str, output: str, expected: str) -> None:
+              parts = sorted(Path(folder).glob('part-*'))
+              if not parts:
+                  raise SystemExit(f'No parts found in {folder}')
+              texts = [''.join(p.read_text(encoding='utf-8').split()) for p in parts]
+
+              candidates = []
+              try:
+                  candidates.append(('combined', base64.b64decode(''.join(texts), validate=False)))
+              except Exception as exc:
+                  print(f'combined decode failed for {folder}: {exc}')
+
+              try:
+                  chunks = []
+                  for text in texts:
+                      text += '=' * (-len(text) % 4)
+                      chunks.append(base64.b64decode(text, validate=False))
+                  candidates.append(('independent', b''.join(chunks)))
+              except Exception as exc:
+                  print(f'independent decode failed for {folder}: {exc}')
+
+              for mode, data in candidates:
+                  digest = hashlib.sha256(data).hexdigest()
+                  print(f'{folder}: mode={mode}, parts={len(parts)}, bytes={len(data)}, sha256={digest}')
+                  if digest == expected:
+                      Path(output).write_bytes(data)
+                      return
+              raise SystemExit(f'No reconstruction mode matched expected SHA-256 for {folder}')
+
+          Path('release-out').mkdir(exist_ok=True)
+          decode_parts(
+              '.release-temp/v1.9.4/apk',
+              'release-out/WeType_Swipe_LSPosed_v1.9.4.apk',
+              'c53963ea23ebc36b5fd93bef17db2ffc6571cf30412e3484be52597ce76b95b5',
+          )
+          decode_parts(
+              '.release-temp/v1.9.4/source',
+              'release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip',
+              '7790e0578472f1f50081804b9c45c51d46b8ce3c17a404ecfb77309deec07733',
+          )
+          PY
           cp .release-temp/v1.9.4/WeType_Swipe_v1.9.4_SHA256SUMS.txt release-out/
           cp .release-temp/v1.9.4/RELEASE_NOTES.md release-out/
 
