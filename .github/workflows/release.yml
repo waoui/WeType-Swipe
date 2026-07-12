@@ -39,6 +39,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: 配置 Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
       - name: 恢复永久签名证书
         shell: bash
         run: |
@@ -53,8 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x ./gradlew
-          ./gradlew --no-daemon clean assembleRelease
+          gradle --no-daemon clean assembleRelease
 
       - name: 校验签名并整理附件
         shell: bash
