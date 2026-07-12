@@ -85,6 +85,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           if [ "$generate_status" = "0" ] && [ "$build_status" = "0" ]; then
+            # GITHUB_TOKEN cannot modify workflow files. Restore all temporary
+            # workflows and patch tools before committing; they are removed
+            # separately through the GitHub connector after this commit lands.
+            git restore --source=HEAD --staged --worktree .github/workflows tools
             git add -A
             git commit -m "release: finalize v1.10.0 production source"
           else
