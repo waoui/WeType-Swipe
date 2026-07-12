@@ -10,6 +10,9 @@ on:
   issues:
     types:
       - opened
+  pull_request:
+    types:
+      - opened
 
 permissions:
   contents: write
@@ -70,6 +73,7 @@ jobs:
           fi
 
       - name: Clean temporary release files
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -78,5 +82,3 @@ jobs:
           git rm -r .release-temp/v1.9.4 .github/workflows/publish-v1.9.4.yml
           git commit -m "chore: clean v1.9.4 release payload"
           git push
-
-# Trigger after Actions permissions were enabled.
