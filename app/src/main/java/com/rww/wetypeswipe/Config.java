@@ -17,6 +17,8 @@ final class Config {
     static final String KEY_PARAGRAPH_END = "paragraph_end";
     static final String KEY_SELECT_TO_PARAGRAPH_START = "select_to_paragraph_start";
     static final String KEY_SELECT_TO_PARAGRAPH_END = "select_to_paragraph_end";
+    static final String KEY_OPEN_CLIPBOARD = "open_clipboard";
+    static final String KEY_OPEN_QUICK_PHRASE = "open_quick_phrase";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
@@ -44,10 +46,13 @@ final class Config {
     static final int ACTION_PARAGRAPH_END = 7;
     static final int ACTION_SELECT_TO_PARAGRAPH_START = 8;
     static final int ACTION_SELECT_TO_PARAGRAPH_END = 9;
+    static final int ACTION_OPEN_CLIPBOARD = 10;
+    static final int ACTION_OPEN_QUICK_PHRASE = 11;
 
     static final String[] ACTION_MENU_LABELS = {
             "未绑定", "全选", "剪切", "复制", "粘贴",
-            "段首", "段尾", "选至段首", "选至段尾", "禁用下滑"
+            "段首", "段尾", "选至段首", "选至段尾",
+            "剪贴板", "快捷发送", "禁用下滑"
     };
 
     private static final int[] ACTION_MENU_VALUES = {
@@ -60,6 +65,8 @@ final class Config {
             ACTION_PARAGRAPH_END,
             ACTION_SELECT_TO_PARAGRAPH_START,
             ACTION_SELECT_TO_PARAGRAPH_END,
+            ACTION_OPEN_CLIPBOARD,
+            ACTION_OPEN_QUICK_PHRASE,
             ACTION_DISABLE
     };
 
@@ -71,6 +78,8 @@ final class Config {
     String paragraphEnd = "";
     String selectToParagraphStart = "";
     String selectToParagraphEnd = "";
+    String openClipboard = "";
+    String openQuickPhrase = "";
     String disabledKeys = "";
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
@@ -91,6 +100,8 @@ final class Config {
         bind(paragraphEnd, ACTION_PARAGRAPH_END);
         bind(selectToParagraphStart, ACTION_SELECT_TO_PARAGRAPH_START);
         bind(selectToParagraphEnd, ACTION_SELECT_TO_PARAGRAPH_END);
+        bind(openClipboard, ACTION_OPEN_CLIPBOARD);
+        bind(openQuickPhrase, ACTION_OPEN_QUICK_PHRASE);
         bindDisabled(disabledKeys);
 
         hasAnyBinding = false;
@@ -150,7 +161,7 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_SELECT_TO_PARAGRAPH_END
+        return action >= ACTION_NONE && action <= ACTION_OPEN_QUICK_PHRASE
                 ? action : ACTION_NONE;
     }
 
@@ -214,6 +225,8 @@ final class Config {
             case ACTION_PARAGRAPH_END: return "段尾";
             case ACTION_SELECT_TO_PARAGRAPH_START: return "选至段首";
             case ACTION_SELECT_TO_PARAGRAPH_END: return "选至段尾";
+            case ACTION_OPEN_CLIPBOARD: return "剪贴板";
+            case ACTION_OPEN_QUICK_PHRASE: return "快捷发送";
             default: return "未绑定";
         }
     }

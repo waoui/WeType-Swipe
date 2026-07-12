@@ -51,12 +51,15 @@ public final class MainActivity extends Activity {
             Config.ACTION_PARAGRAPH_START,
             Config.ACTION_PARAGRAPH_END,
             Config.ACTION_SELECT_TO_PARAGRAPH_START,
-            Config.ACTION_SELECT_TO_PARAGRAPH_END
+            Config.ACTION_SELECT_TO_PARAGRAPH_END,
+            Config.ACTION_OPEN_CLIPBOARD,
+            Config.ACTION_OPEN_QUICK_PHRASE
     };
 
     private static final String[] QWERTY_LABELS = {
             "全选", "剪切", "复制", "粘贴",
-            "段首", "段尾", "选至段首", "选至段尾"
+            "段首", "段尾", "选至段首", "选至段尾",
+            "剪贴板", "快捷发送"
     };
 
     private static final String[] QWERTY_ROWS = {
@@ -163,7 +166,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.9.4 · 点击键位设置下滑动作", 13, COLOR_SECONDARY);
+        TextView version = text("v1.10.0 · 原生剪贴板与快捷发送", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -583,6 +586,8 @@ public final class MainActivity extends Activity {
         qwertyKeys[5] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_END, ""));
         qwertyKeys[6] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, ""));
         qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));
+        qwertyKeys[8] = normalizedKey(prefs.getString(Config.KEY_OPEN_CLIPBOARD, ""));
+        qwertyKeys[9] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));
         disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
         for (int digit = 2; digit <= 9; digit++) {
             t9Actions[digit] = Config.validAction(
@@ -616,6 +621,8 @@ public final class MainActivity extends Activity {
                 .putString(Config.KEY_PARAGRAPH_END, qwertyKeys[5])
                 .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[6])
                 .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[7])
+                .putString(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[8])
+                .putString(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[9])
                 .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
                 .remove("text_start")
                 .remove("text_end")
@@ -647,6 +654,8 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_PARAGRAPH_END, qwertyKeys[5]);
         changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[6]);
         changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[7]);
+        changed.putExtra(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[8]);
+        changed.putExtra(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[9]);
         changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
@@ -718,6 +727,8 @@ public final class MainActivity extends Activity {
             case Config.ACTION_PARAGRAPH_END: return "段尾";
             case Config.ACTION_SELECT_TO_PARAGRAPH_START: return "选段首";
             case Config.ACTION_SELECT_TO_PARAGRAPH_END: return "选段尾";
+            case Config.ACTION_OPEN_CLIPBOARD: return "剪贴板";
+            case Config.ACTION_OPEN_QUICK_PHRASE: return "快捷语";
             default: return "—";
         }
     }
