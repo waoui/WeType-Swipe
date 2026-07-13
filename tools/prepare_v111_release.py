@@ -2,7 +2,7 @@ from pathlib import Path
 import re
 import runpy
 
-runpy.run_path("tools/patch_v111_test17_final_v2.py", run_name="__main__")
+runpy.run_path("tools/patch_v111_test17_robust.py", run_name="__main__")
 
 hook = Path("app/src/main/java/com/rww/wetypeswipe/MainHook.java")
 text = hook.read_text(encoding="utf-8")
