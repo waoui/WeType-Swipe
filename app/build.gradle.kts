@@ -12,8 +12,8 @@ android {
         applicationId = "com.rww.wetypeswipe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "1.10.0"
+        versionCode = 38
+        versionName = "1.11.0"
     }
 
     signingConfigs {

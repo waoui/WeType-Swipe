@@ -87,6 +87,8 @@ public final class MainActivity extends Activity {
     private SeekBar t9Threshold;
     private TextView thresholdValue;
     private TextView t9ThresholdValue;
+    private CheckBox showKeyLabels;
+    private CheckBox showTriggerHint;
     private CheckBox vibration;
     private CheckBox hideIcon;
 
@@ -166,7 +168,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.10.0 · 原生剪贴板与快捷发送", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.0 · 按键功能文字与显示选项", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -382,6 +384,30 @@ public final class MainActivity extends Activity {
 
     private View buildGeneralCard() {
         LinearLayout card = createCard("通用设置", null, false);
+
+        showKeyLabels = new CheckBox(this);
+        showKeyLabels.setText("显示按键底部功能文字");
+        showKeyLabels.setTextSize(15);
+        showKeyLabels.setTextColor(COLOR_TEXT);
+        showKeyLabels.setPadding(dp(12), dp(6), dp(12), dp(6));
+        showKeyLabels.setChecked(prefs.getBoolean(Config.KEY_SHOW_KEY_LABELS, true));
+        card.addView(showKeyLabels, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        card.addView(divider());
+
+        showTriggerHint = new CheckBox(this);
+        showTriggerHint.setText("显示下滑触发提示");
+        showTriggerHint.setTextSize(15);
+        showTriggerHint.setTextColor(COLOR_TEXT);
+        showTriggerHint.setPadding(dp(12), dp(6), dp(12), dp(6));
+        showTriggerHint.setChecked(prefs.getBoolean(Config.KEY_SHOW_TRIGGER_HINT, true));
+        card.addView(showTriggerHint, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+
+        TextView displayNote = text("关闭后只隐藏提示，不影响下滑功能。", 12, COLOR_SECONDARY);
+        displayNote.setPadding(dp(18), 0, dp(18), dp(12));
+        card.addView(displayNote);
+        card.addView(divider());
 
         vibration = new CheckBox(this);
         vibration.setText("触发快捷操作时额外震动");
@@ -631,6 +657,8 @@ public final class MainActivity extends Activity {
                 .putInt(Config.KEY_THRESHOLD, threshold.getProgress() + 6)
                 .putInt(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10)
                 .putBoolean(Config.KEY_VIBRATION, vibration.isChecked())
+                .putBoolean(Config.KEY_SHOW_KEY_LABELS, showKeyLabels.isChecked())
+                .putBoolean(Config.KEY_SHOW_TRIGGER_HINT, showTriggerHint.isChecked())
                 .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon)
                 .putInt(Config.KEY_REVISION, revision);
 
@@ -660,6 +688,8 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
         changed.putExtra(Config.KEY_VIBRATION, vibration.isChecked());
+        changed.putExtra(Config.KEY_SHOW_KEY_LABELS, showKeyLabels.isChecked());
+        changed.putExtra(Config.KEY_SHOW_TRIGGER_HINT, showTriggerHint.isChecked());
         changed.putExtra(Config.KEY_REVISION, revision);
         for (int digit = 2; digit <= 9; digit++) {
             changed.putExtra(Config.t9PrefKey(digit), t9Actions[digit]);

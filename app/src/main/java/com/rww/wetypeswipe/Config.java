@@ -23,6 +23,8 @@ final class Config {
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
     static final String KEY_VIBRATION = "vibration";
+    static final String KEY_SHOW_KEY_LABELS = "show_key_labels";
+    static final String KEY_SHOW_TRIGGER_HINT = "show_trigger_hint";
     static final String KEY_HIDE_ICON = "hide_icon";
     static final String KEY_REVISION = "revision";
 
@@ -84,6 +86,8 @@ final class Config {
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
     boolean vibration = true;
+    boolean showKeyLabels = true;
+    boolean showTriggerHint = true;
     int revision = 0;
 
     final int[] t9Actions = new int[10];
