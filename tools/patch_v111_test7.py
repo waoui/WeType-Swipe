@@ -1,5 +1,13 @@
 from pathlib import Path
+import atexit
 import runpy
+import sys
+
+# Existing test8 workflow invokes patch_v111_test8_fix.py, which in turn runs
+# this script. Register the test9 post-step for that exact entry point so the
+# proven signing/build workflow can be reused without changing its secrets.
+if sys.argv and sys.argv[0].endswith("patch_v111_test8_fix.py"):
+    atexit.register(lambda: runpy.run_path("tools/patch_v111_test9_after.py", run_name="__main__"))
 
 runpy.run_path("tools/patch_v111_test6.py", run_name="__main__")
 
@@ -23,55 +31,55 @@ replace(hook,
 # corrected relative to the real keyboard width and density.
 replace(hook,
 '''        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline);
-        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline);
-        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline);
+         drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline);
+         drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline);
 ''',
 '''        drawQwertyRow(keyboard, canvas, config, "qwertyuiop", firstBaseline);
-        drawQwertyRow(keyboard, canvas, config, "asdfghjkl", secondBaseline);
-        drawQwertyRow(keyboard, canvas, config, "zxcvbnm", thirdBaseline);
+         drawQwertyRow(keyboard, canvas, config, "asdfghjkl", secondBaseline);
+         drawQwertyRow(keyboard, canvas, config, "zxcvbnm", thirdBaseline);
 ''')
 
 replace(hook,
 '''    private void drawQwertyRow(Canvas canvas, Config config, String keys, float baseline) {
-        Map<String, List<Float>> centers = keyboardLabelCenters;
-        if (centers == null || centers.isEmpty()) return;
-        for (int index = 0; index < keys.length(); index++) {
-            String key = String.valueOf(keys.charAt(index));
-            int action = config.actionFor(key, false);
-            if (action == Config.ACTION_NONE) continue;
-            List<Float> positions = centers.get(key);
-            if (positions == null) continue;
-            for (Float x : positions) {
-                if (x != null) drawKeyFunctionText(canvas, shortActionLabel(action), x, baseline);
-            }
-        }
-    }
+         Map<String, List<Float>> centers = keyboardLabelCenters;
+         if (centers == null || centers.isEmpty()) return;
+         for (int index = 0; index < keys.length(); index++) {
+             String key = String.valueOf(keys.charAt(index));
+             int action = config.actionFor(key, false);
+             if (action == Config.ACTION_NONE) continue;
+             List<Float> positions = centers.get(key);
+             if (positions == null) continue;
+             for (Float x : positions) {
+                 if (x != null) drawKeyFunctionText(canvas, shortActionLabel(action), x, baseline);
+             }
+         }
+     }
 ''',
 '''    private void drawQwertyRow(View keyboard, Canvas canvas, Config config,
-                                String keys, float baseline) {
-        Map<String, List<Float>> centers = keyboardLabelCenters;
-        if (centers == null || centers.isEmpty()) return;
-        int width = Math.max(1, keyboard.getWidth());
-        float leftEdgeCorrection = Math.max(dp(keyboard, 5), Math.min(dp(keyboard, 9), width * 0.012f));
-        for (int index = 0; index < keys.length(); index++) {
-            String key = String.valueOf(keys.charAt(index));
-            int action = config.actionFor(key, false);
-            if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
-            List<Float> positions = centers.get(key);
-            if (positions == null) continue;
-            for (Float position : positions) {
-                if (position == null) continue;
-                float x = position;
-                // The hit-test region of the leftmost A key extends into the
-                // keyboard edge gutter. Its geometric center is therefore left
-                // of the visible keycap center. Correct only that edge instance.
-                if ("a".equals(key) && x < width * 0.18f) {
-                    x += leftEdgeCorrection;
-                }
-                drawKeyFunctionText(canvas, shortActionLabel(action), x, baseline);
-            }
-        }
-    }
+                                 String keys, float baseline) {
+         Map<String, List<Float>> centers = keyboardLabelCenters;
+         if (centers == null || centers.isEmpty()) return;
+         int width = Math.max(1, keyboard.getWidth());
+         float leftEdgeCorrection = Math.max(dp(keyboard, 5), Math.min(dp(keyboard, 9), width * 0.012f));
+         for (int index = 0; index < keys.length(); index++) {
+             String key = String.valueOf(keys.charAt(index));
+             int action = config.actionFor(key, false);
+             if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
+             List<Float> positions = centers.get(key);
+             if (positions == null) continue;
+             for (Float position : positions) {
+                 if (position == null) continue;
+                 float x = position;
+                 // The hit-test region of the leftmost A key extends into the
+                 // keyboard edge gutter. Its geometric center is therefore left
+                 // of the visible keycap center. Correct only that edge instance.
+                 if ("a".equals(key) && x < width * 0.18f) {
+                     x += leftEdgeCorrection;
+                 }
+                 drawKeyFunctionText(canvas, shortActionLabel(action), x, baseline);
+             }
+         }
+     }
 ''')
 
 # A disabled binding remains functional, but does not need a persistent label.
