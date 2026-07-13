@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "tools/patch_v111_test5.py"
+      - "tools/patch_v111_test5_fix.py"
       - ".github/workflows/test-v1.11.0-test4.yml"
   workflow_dispatch:
 
@@ -29,7 +30,7 @@ jobs:
           gradle-version: "8.9"
 
       - name: 写入 test5 真实按键边界标注
-        run: python3 tools/patch_v111_test5.py
+        run: python3 tools/patch_v111_test5_fix.py
 
       - name: 恢复正式签名证书
         shell: bash
