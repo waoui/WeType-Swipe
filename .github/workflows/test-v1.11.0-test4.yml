@@ -57,7 +57,17 @@ jobs:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: gradle --no-daemon clean assembleRelease
+        run: |
+          set -o pipefail
+          gradle --no-daemon clean assembleRelease 2>&1 | tee diag2_build.log
+
+      - name: 上传编译诊断日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag2-build-log
+          path: diag2_build.log
+          if-no-files-found: ignore
 
       - name: 整理诊断 APK
         shell: bash
