@@ -1,10 +1,10 @@
-name: 构建 v1.11.0-test14 横屏字体基线修正测试包
+name: 构建 v1.11.0-test15 短标签与位置修正测试包
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - "tools/patch_v111_test14_landscape_baseline.py"
+      - "tools/patch_v111_test15_label_and_baseline.py"
       - ".github/workflows/test-v1.11.0-test13.yml"
   workflow_dispatch:
 
@@ -25,8 +25,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: 写入 test14 横屏字体基线修正
-        run: python3 tools/patch_v111_test14_landscape_baseline.py
+      - name: 写入 test15 短标签与位置修正
+        run: python3 tools/patch_v111_test15_label_and_baseline.py
       - name: 恢复正式签名证书
         env:
           SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
@@ -43,11 +43,11 @@ jobs:
       - name: 整理测试 APK
         run: |
           mkdir -p artifact
-          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.0-test14.apk
-          sha256sum artifact/WeType_Swipe_LSPosed_v1.11.0-test14.apk
+          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.0-test15.apk
+          sha256sum artifact/WeType_Swipe_LSPosed_v1.11.0-test15.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: WeType-Swipe-v1.11.0-test14
-          path: artifact/WeType_Swipe_LSPosed_v1.11.0-test14.apk
+          name: WeType-Swipe-v1.11.0-test15
+          path: artifact/WeType_Swipe_LSPosed_v1.11.0-test15.apk
       - if: always()
         run: rm -f signing.jks
