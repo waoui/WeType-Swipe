@@ -1,4 +1,4 @@
-name: Publish v1.9.4
+name: Publish v1.11.0
 
 on:
   workflow_dispatch:
@@ -7,127 +7,82 @@ on:
       - main
     paths:
       - ".github/workflows/publish-v1.9.4.yml"
-  issues:
-    types:
-      - opened
-  pull_request:
-    types:
-      - opened
-      - synchronize
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    if: github.event_name != 'issues' || github.event.issue.title == 'Publish v1.9.4'
     runs-on: ubuntu-latest
     steps:
-      - name: Clone repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Generate formal v1.11.0 source
+        run: python3 tools/prepare_v111_release.py
+
+      - name: Restore release signing key
         env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: gh repo clone waoui/WeType-Swipe repo -- --depth 1 --branch main --quiet
-
-      - name: Reconstruct release files
-        working-directory: repo
-        shell: bash
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import base64, hashlib
+          test -n "$SIGNING_KEY_BASE64"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > signing.jks
 
-          def decode_parts(folder: str, output: str, expected: str) -> None:
-              parts = sorted(Path(folder).glob('part-*'))
-              print('parts:', [str(p) for p in parts])
-              if not parts:
-                  raise SystemExit(f'No parts found in {folder}')
-              texts = [''.join(p.read_text(encoding='utf-8').split()) for p in parts]
-
-              candidates = []
-              try:
-                  candidates.append(('combined', base64.b64decode(''.join(texts), validate=False)))
-              except Exception as exc:
-                  print(f'combined decode failed for {folder}: {exc}')
-
-              try:
-                  chunks = []
-                  for text in texts:
-                      text += '=' * (-len(text) % 4)
-                      chunks.append(base64.b64decode(text, validate=False))
-                  candidates.append(('independent', b''.join(chunks)))
-              except Exception as exc:
-                  print(f'independent decode failed for {folder}: {exc}')
-
-              for mode, data in candidates:
-                  digest = hashlib.sha256(data).hexdigest()
-                  print(f'{folder}: mode={mode}, parts={len(parts)}, bytes={len(data)}, sha256={digest}')
-                  if digest == expected:
-                      Path(output).write_bytes(data)
-                      return
-              raise SystemExit(f'No reconstruction mode matched expected SHA-256 for {folder}')
-
-          Path('release-out').mkdir(exist_ok=True)
-          decode_parts(
-              '.release-temp/v1.9.4/apk',
-              'release-out/WeType_Swipe_LSPosed_v1.9.4.apk',
-              'c53963ea23ebc36b5fd93bef17db2ffc6571cf30412e3484be52597ce76b95b5',
-          )
-          decode_parts(
-              '.release-temp/v1.9.4/source',
-              'release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip',
-              '7790e0578472f1f50081804b9c45c51d46b8ce3c17a404ecfb77309deec07733',
-          )
-          PY
-          cp .release-temp/v1.9.4/WeType_Swipe_v1.9.4_SHA256SUMS.txt release-out/
-          cp .release-temp/v1.9.4/RELEASE_NOTES.md release-out/
-
-      - name: Verify release files
-        working-directory: repo
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "c53963ea23ebc36b5fd93bef17db2ffc6571cf30412e3484be52597ce76b95b5  release-out/WeType_Swipe_LSPosed_v1.9.4.apk" | sha256sum --check --strict -
-          echo "7790e0578472f1f50081804b9c45c51d46b8ce3c17a404ecfb77309deec07733  release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip" | sha256sum --check --strict -
-          unzip -t release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip
-
-      - name: Create or update GitHub Release
-        working-directory: repo
+      - name: Build signed APK
         env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gh release view v1.9.4 >/dev/null 2>&1; then
-            gh release edit v1.9.4 \
-              --title "微信输入法下滑快捷键 v1.9.4" \
-              --notes-file release-out/RELEASE_NOTES.md \
-              --latest
-            gh release upload v1.9.4 \
-              release-out/WeType_Swipe_LSPosed_v1.9.4.apk \
-              release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip \
-              release-out/WeType_Swipe_v1.9.4_SHA256SUMS.txt \
-              --clobber
-          else
-            gh release create v1.9.4 \
-              release-out/WeType_Swipe_LSPosed_v1.9.4.apk \
-              release-out/WeType_Swipe_LSPosed_v1.9.4_source.zip \
-              release-out/WeType_Swipe_v1.9.4_SHA256SUMS.txt \
-              --target main \
-              --title "微信输入法下滑快捷键 v1.9.4" \
-              --notes-file release-out/RELEASE_NOTES.md \
-              --latest
-          fi
+          SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: gradle --no-daemon clean assembleRelease
 
-      - name: Clean temporary release files
-        if: github.event_name != 'pull_request'
-        working-directory: repo
-        shell: bash
+      - name: Materialize source and clean test assets
         run: |
           set -euo pipefail
+          python3 tools/cleanup_v111_release.py
+          rm -f .github/workflows/publish-v1.9.4.yml signing.jks
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -r .release-temp/v1.9.4 .github/workflows/publish-v1.9.4.yml
-          git commit -m "chore: clean v1.9.4 release payload"
-          git push
+          git add -A
+          git commit -m "release: v1.11.0"
+          git push origin HEAD:main
+
+      - name: Package release files
+        run: |
+          set -euo pipefail
+          mkdir -p release-out
+          cp app/build/outputs/apk/release/app-release.apk release-out/WeType_Swipe_LSPosed_v1.11.0.apk
+          git archive --format=zip --output release-out/WeType_Swipe_LSPosed_v1.11.0_source.zip HEAD
+          cd release-out
+          sha256sum WeType_Swipe_LSPosed_v1.11.0.apk WeType_Swipe_LSPosed_v1.11.0_source.zip > WeType_Swipe_v1.11.0_SHA256SUMS.txt
+          sha256sum --check --strict WeType_Swipe_v1.11.0_SHA256SUMS.txt
+          unzip -t WeType_Swipe_LSPosed_v1.11.0_source.zip
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_commit="$(git rev-parse HEAD)"
+          gh release create v1.11.0 \
+            release-out/WeType_Swipe_LSPosed_v1.11.0.apk \
+            release-out/WeType_Swipe_LSPosed_v1.11.0_source.zip \
+            release-out/WeType_Swipe_v1.11.0_SHA256SUMS.txt \
+            --target "$release_commit" \
+            --title "微信输入法下滑快捷键 v1.11.0" \
+            --notes-file RELEASE_NOTES_v1.11.0.md \
+            --latest
