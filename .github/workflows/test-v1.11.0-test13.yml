@@ -4,9 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "tools/patch_v111_test17_settings_ui.py"
-      - "tools/patch_v111_test17_display_logic.py"
-      - "tools/patch_v111_test17_final.py"
+      - "tools/patch_v111_test17_robust.py"
       - ".github/workflows/test-v1.11.0-test13.yml"
   workflow_dispatch:
 
@@ -28,7 +26,7 @@ jobs:
         with:
           gradle-version: "8.9"
       - name: 写入 test17 显示选项开关
-        run: python3 tools/patch_v111_test17_final.py
+        run: python3 tools/patch_v111_test17_robust.py
       - name: 恢复正式签名证书
         env:
           SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
