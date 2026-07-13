@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "tools/patch_v111_diag2.py"
+      - "tools/patch_v111_diag2_fix.py"
       - ".github/workflows/test-v1.11.0-test4.yml"
   workflow_dispatch:
 
@@ -29,7 +29,7 @@ jobs:
           gradle-version: "8.9"
 
       - name: 写入 diag2 深色与九宫格诊断
-        run: python3 tools/patch_v111_diag2.py
+        run: python3 tools/patch_v111_diag2_fix.py
 
       - name: 恢复正式签名证书
         shell: bash
