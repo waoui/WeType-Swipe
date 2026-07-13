@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "tools/patch_v111_diag2_final.py"
+      - "tools/patch_v111_diag2_buildfix.py"
       - ".github/workflows/test-v1.11.0-test4.yml"
   workflow_dispatch:
 
@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 tools/patch_v111_diag2_final.py 2>&1 | tee diag2_patch.log
+          python3 tools/patch_v111_diag2_buildfix.py 2>&1 | tee diag2_patch.log
 
       - name: 上传补丁诊断日志
         if: always()
