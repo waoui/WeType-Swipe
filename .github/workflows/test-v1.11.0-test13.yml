@@ -51,3 +51,5 @@ jobs:
           path: artifact/WeType_Swipe_LSPosed_v1.11.0-test13.apk
       - if: always()
         run: rm -f signing.jks
+
+# trigger: native-per-key-renderer
