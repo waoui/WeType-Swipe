@@ -1,10 +1,10 @@
-name: 构建 v1.11.0-test17 显示选项开关测试包
+name: 构建 v1.11.0 正式候选包
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - "tools/patch_v111_test17_robust.py"
+      - "tools/prepare_v111_release.py"
       - ".github/workflows/test-v1.11.0-test13.yml"
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  build-test-apk:
+  build-release-candidate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,29 +25,38 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: 写入 test17 显示选项开关
-        run: python3 tools/patch_v111_test17_robust.py
+      - name: 生成 v1.11.0 正式源码
+        run: python3 tools/prepare_v111_release.py
       - name: 恢复正式签名证书
         env:
           SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
         run: |
           test -n "$SIGNING_KEY_BASE64"
           printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > signing.jks
-      - name: 编译同签名测试包
+      - name: 编译正式签名候选包
         env:
           SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: gradle --no-daemon clean assembleRelease
-      - name: 整理测试 APK
+      - name: 整理候选包与生成源码
         run: |
-          mkdir -p artifact
-          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.0-test17.apk
-          sha256sum artifact/WeType_Swipe_LSPosed_v1.11.0-test17.apk
+          mkdir -p artifact/generated-source/app/src/main/java/com/rww/wetypeswipe
+          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.0.apk
+          cp app/build.gradle.kts artifact/generated-source/app/build.gradle.kts
+          cp app/src/main/java/com/rww/wetypeswipe/*.java artifact/generated-source/app/src/main/java/com/rww/wetypeswipe/
+          cp README.md RELEASE_NOTES_v1.11.0.md artifact/generated-source/
+          cd artifact/generated-source
+          zip -r ../WeType_Swipe_v1.11.0_generated_source.zip .
+          cd ../..
+          sha256sum artifact/WeType_Swipe_LSPosed_v1.11.0.apk
+          sha256sum artifact/WeType_Swipe_v1.11.0_generated_source.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: WeType-Swipe-v1.11.0-test17
-          path: artifact/WeType_Swipe_LSPosed_v1.11.0-test17.apk
+          name: WeType-Swipe-v1.11.0-release-candidate
+          path: |
+            artifact/WeType_Swipe_LSPosed_v1.11.0.apk
+            artifact/WeType_Swipe_v1.11.0_generated_source.zip
       - if: always()
         run: rm -f signing.jks
