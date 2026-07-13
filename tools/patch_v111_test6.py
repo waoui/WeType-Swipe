@@ -1,7 +1,7 @@
 from pathlib import Path
 import runpy
 
-runpy.run_path("tools/patch_v111_test5.py", run_name="__main__")
+runpy.run_path("tools/patch_v111_test5_fix.py", run_name="__main__")
 
 
 def replace(path: str, old: str, new: str, count: int = 1) -> None:
