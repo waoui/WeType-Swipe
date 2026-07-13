@@ -1,10 +1,10 @@
-name: 构建 v1.11.0-test11 原生键帽坐标测试包
+name: 构建 v1.11.0-test12 原生布局自动刷新测试包
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - "tools/patch_v111_test11_native_layout.py"
+      - "tools/patch_v111_test12_native_refresh.py"
       - ".github/workflows/test-v1.11.0-test4.yml"
   workflow_dispatch:
 
@@ -28,18 +28,18 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: 写入 test11 原生键帽坐标逻辑
+      - name: 写入 test12 原生布局刷新逻辑
         shell: bash
         run: |
           set -o pipefail
-          python3 tools/patch_v111_test11_native_layout.py 2>&1 | tee test11_patch.log
+          python3 tools/patch_v111_test12_native_refresh.py 2>&1 | tee test12_patch.log
 
       - name: 上传补丁日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test11-patch-log
-          path: test11_patch.log
+          name: test12-patch-log
+          path: test12_patch.log
           if-no-files-found: ignore
 
       - name: 恢复正式签名证书
@@ -59,27 +59,27 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          gradle --no-daemon clean assembleRelease 2>&1 | tee test11_build.log
+          gradle --no-daemon clean assembleRelease 2>&1 | tee test12_build.log
 
       - name: 上传编译日志
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test11-build-log
-          path: test11_build.log
+          name: test12-build-log
+          path: test12_build.log
           if-no-files-found: ignore
 
       - name: 整理测试 APK
         shell: bash
         run: |
           mkdir -p artifact
-          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.0-test11.apk
-          sha256sum artifact/WeType_Swipe_LSPosed_v1.11.0-test11.apk
+          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.0-test12.apk
+          sha256sum artifact/WeType_Swipe_LSPosed_v1.11.0-test12.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: WeType-Swipe-v1.11.0-test11
-          path: artifact/WeType_Swipe_LSPosed_v1.11.0-test11.apk
+          name: WeType-Swipe-v1.11.0-test12
+          path: artifact/WeType_Swipe_LSPosed_v1.11.0-test12.apk
 
       - if: always()
         run: rm -f signing.jks
