@@ -1,5 +1,6 @@
 package com.rww.wetypeswipe;
 
+import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -244,6 +245,7 @@ public final class MainHook extends XposedModule {
         }
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag") // API < 33 only provides the legacy overload.
     private synchronized void registerConfigReceiver(Context context) {
         if (receiverRegistered || context == null) return;
         configReceiver = new BroadcastReceiver() {
