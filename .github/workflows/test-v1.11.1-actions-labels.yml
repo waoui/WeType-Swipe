@@ -23,7 +23,7 @@ jobs:
         with:
           gradle-version: "8.9"
       - name: Apply patch
-        run: python3 tools/patch_v1111_test1_actions_labels.py
+        run: python3 tools/patch_v1111_test1_compile_fix.py
       - name: Build
         shell: bash
         run: |
