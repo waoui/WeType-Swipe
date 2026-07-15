@@ -1,0 +1,210 @@
+name: 斗地主助手 Android 构建
+
+on:
+  push:
+    branches:
+      - codex/ddz-android-v0.1.1
+    paths:
+      - ".github/workflows/ddz-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: 检出构建工具
+        uses: actions/checkout@v4
+
+      - name: 还原 Android 工程
+        shell: bash
+        run: |
+          cat > /tmp/ddz-android-src.b64 <<'ARCHIVE'
+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
+GirA30kH/i8AyAAA
+ARCHIVE
+          base64 --decode /tmp/ddz-android-src.b64 > /tmp/ddz-android-src.tar.gz
+          tar -xzf /tmp/ddz-android-src.tar.gz
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Android 35 构建组件
+        shell: bash
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 编译 Debug APK
+        shell: bash
+        run: ./gradlew -p ddz-android --no-daemon --stacktrace assembleDebug
+
+      - name: 整理 APK
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp ddz-android/app/build/outputs/apk/debug/app-debug.apk artifacts/DdzAiTrainer-v0.1.1-debug.apk
+          sha256sum artifacts/*.apk > artifacts/SHA256SUMS.txt
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: DdzAiTrainer-v0.1.1-Android
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
