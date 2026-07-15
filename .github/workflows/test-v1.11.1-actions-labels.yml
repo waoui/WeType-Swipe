@@ -25,8 +25,18 @@ jobs:
       - name: Apply patch
         run: python3 tools/patch_v1111_test1_actions_labels.py
       - name: Build
-        run: gradle --no-daemon clean assembleRelease
+        shell: bash
+        run: |
+          mkdir -p artifact
+          set +e
+          gradle --no-daemon --console=plain clean assembleRelease > artifact/build.log 2>&1
+          code=$?
+          tail -n 220 artifact/build.log
+          exit $code
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: WeType-Swipe-v1.11.1-test1-unsigned
-          path: app/build/outputs/apk/release/app-release.apk
+          name: WeType-Swipe-v1.11.1-test1-build
+          path: |
+            artifact/build.log
+            app/build/outputs/apk/release/app-release.apk
