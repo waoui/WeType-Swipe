@@ -1,14 +1,16 @@
-name: Build v1.11.1 release candidate
+name: Publish v1.11.1
 
 on:
-  pull_request:
-    branches: [main]
+  issues:
+    types: [opened]
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
 
 jobs:
-  build:
+  publish:
+    if: github.event.issue.title == 'Publish v1.11.1 final'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,23 +46,37 @@ jobs:
         run: |
           set -euo pipefail
           gradle --no-daemon --console=plain clean assembleRelease
-          mkdir -p artifact/source
-          cp app/build/outputs/apk/release/app-release.apk artifact/WeType_Swipe_LSPosed_v1.11.1.apk
-          cp -R app artifact/source/
-          cp README.md settings.gradle.kts build.gradle.kts gradle.properties artifact/source/
-          cd artifact/source
-          zip -qr ../WeType_Swipe_LSPosed_v1.11.1_source.zip .
-          cd ..
+          mkdir -p release-out
+          cp app/build/outputs/apk/release/app-release.apk release-out/WeType_Swipe_LSPosed_v1.11.1.apk
+
+      - name: Commit formal source
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/workflows/test-v1.11.1-actions-labels.yml tools/patch_v1111_test1_actions_labels.py tools/patch_v1111_test1_compile_fix.py tools/prepare_v1111_release.py
+          git add app/src/main/java/com/rww/wetypeswipe/Config.java app/src/main/java/com/rww/wetypeswipe/MainActivity.java app/src/main/java/com/rww/wetypeswipe/MainHook.java app/build.gradle.kts README.md
+          git commit -m "release: v1.11.1"
+          git push origin main
+
+      - name: Package release files
+        run: |
+          set -euo pipefail
+          git archive --format=zip --output=release-out/WeType_Swipe_LSPosed_v1.11.1_source.zip HEAD
+          cd release-out
           sha256sum WeType_Swipe_LSPosed_v1.11.1.apk WeType_Swipe_LSPosed_v1.11.1_source.zip > WeType_Swipe_v1.11.1_SHA256SUMS.txt
           cat WeType_Swipe_v1.11.1_SHA256SUMS.txt
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: WeType-Swipe-v1.11.1-release-candidate
-          path: |
-            artifact/WeType_Swipe_LSPosed_v1.11.1.apk
-            artifact/WeType_Swipe_LSPosed_v1.11.1_source.zip
-            artifact/WeType_Swipe_v1.11.1_SHA256SUMS.txt
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.11.1 release-out/* --target main --title "微信输入法下滑快捷键 v1.11.1" --notes-file release-notes-v1.11.1.md --latest
+
+      - name: Close trigger issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue close "${{ github.event.issue.number }}" --comment "v1.11.1 已发布。"
 
       - if: always()
         run: rm -f signing.jks
