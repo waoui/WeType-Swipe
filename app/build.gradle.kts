@@ -3,6 +3,8 @@ plugins {
 }
 
 val signingStoreFilePath = System.getenv("SIGNING_STORE_FILE")
+val appVersionCode = providers.gradleProperty("VERSION_CODE").get().toInt()
+val appVersionName = providers.gradleProperty("VERSION_NAME").get()
 
 android {
     namespace = "com.rww.wetypeswipe"
@@ -12,8 +14,8 @@ android {
         applicationId = "com.rww.wetypeswipe"
         minSdk = 26
         targetSdk = 35
-        versionCode = 39
-        versionName = "1.11.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {
@@ -53,4 +55,5 @@ android {
 
 dependencies {
     compileOnly("io.github.libxposed:api:102.0.0")
+    testImplementation("junit:junit:4.13.2")
 }
