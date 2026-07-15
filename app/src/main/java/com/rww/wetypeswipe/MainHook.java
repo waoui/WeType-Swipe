@@ -1,5 +1,6 @@
 package com.rww.wetypeswipe;
 
+import android.annotation.SuppressLint;
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -53,6 +54,7 @@ public final class MainHook extends XposedModule {
     private static final String TARGET = "com.tencent.wetype";
     private static final String KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.n";
     private static final int PARAGRAPH_CONTEXT_CHARS = 65_536;
+    private static final int NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT = 128;
 
     private final GestureTracker tracker = new GestureTracker();
     private final ConcurrentHashMap<String, Method> methodCache = new ConcurrentHashMap<>();
@@ -243,6 +245,7 @@ public final class MainHook extends XposedModule {
         }
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag") // API < 33 only provides the legacy overload.
     private synchronized void registerConfigReceiver(Context context) {
         if (receiverRegistered || context == null) return;
         configReceiver = new BroadcastReceiver() {
@@ -560,6 +563,9 @@ public final class MainHook extends XposedModule {
                 int action = config.actionFor(key, t9);
                 label = action == Config.ACTION_NONE || action == Config.ACTION_DISABLE
                         ? "" : config.labelFor(key, t9, action);
+            }
+            if (nativeSingleKeyLabelCache.size() >= NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT) {
+                nativeSingleKeyLabelCache.clear();
             }
             nativeSingleKeyLabelCache.put(model, label);
         }
@@ -2117,8 +2123,8 @@ public final class MainHook extends XposedModule {
             EditorSnapshot snapshot = readEditorSnapshot(connection);
             if (snapshot == null) return false;
 
-            int paragraphStart = snapshot.left - distanceToParagraphStart(snapshot.before);
-            int paragraphEnd = snapshot.right + distanceToParagraphEnd(snapshot.after);
+            int paragraphStart = snapshot.left - ParagraphNavigator.distanceToStart(snapshot.before);
+            int paragraphEnd = snapshot.right + ParagraphNavigator.distanceToEnd(snapshot.after);
             int targetStart;
             int targetEnd;
 
@@ -2157,8 +2163,10 @@ public final class MainHook extends XposedModule {
                         PARAGRAPH_CONTEXT_CHARS, PARAGRAPH_CONTEXT_CHARS, 0);
                 if (surrounding != null && surrounding.getText() != null) {
                     String text = surrounding.getText().toString();
-                    int relativeStart = clampIndex(surrounding.getSelectionStart(), text.length());
-                    int relativeEnd = clampIndex(surrounding.getSelectionEnd(), text.length());
+                    int relativeStart = ParagraphNavigator.clampIndex(
+                            surrounding.getSelectionStart(), text.length());
+                    int relativeEnd = ParagraphNavigator.clampIndex(
+                            surrounding.getSelectionEnd(), text.length());
                     int relativeLeft = Math.min(relativeStart, relativeEnd);
                     int relativeRight = Math.max(relativeStart, relativeEnd);
                     int offset = Math.max(0, surrounding.getOffset());
@@ -2200,8 +2208,10 @@ public final class MainHook extends XposedModule {
             ExtractedText extracted = connection.getExtractedText(request, 0);
             if (extracted != null && extracted.text != null) {
                 String text = extracted.text.toString();
-                int relativeStart = clampIndex(extracted.selectionStart, text.length());
-                int relativeEnd = clampIndex(extracted.selectionEnd, text.length());
+                int relativeStart = ParagraphNavigator.clampIndex(
+                        extracted.selectionStart, text.length());
+                int relativeEnd = ParagraphNavigator.clampIndex(
+                        extracted.selectionEnd, text.length());
                 int relativeLeft = Math.min(relativeStart, relativeEnd);
                 int relativeRight = Math.max(relativeStart, relativeEnd);
                 int offset = Math.max(0, extracted.startOffset);
@@ -2216,29 +2226,6 @@ public final class MainHook extends XposedModule {
             logError("extracted text fallback unavailable", throwable);
         }
         return null;
-    }
-
-    private static int distanceToParagraphStart(String before) {
-        for (int index = before.length() - 1; index >= 0; index--) {
-            if (isLineBreak(before.charAt(index))) return before.length() - index - 1;
-        }
-        return before.length();
-    }
-
-    private static int distanceToParagraphEnd(String after) {
-        for (int index = 0; index < after.length(); index++) {
-            if (isLineBreak(after.charAt(index))) return index;
-        }
-        return after.length();
-    }
-
-    private static int clampIndex(int value, int length) {
-        if (value < 0) return 0;
-        return Math.min(value, length);
-    }
-
-    private static boolean isLineBreak(char value) {
-        return value == '\n' || value == '\r' || value == '\u2028' || value == '\u2029';
     }
 
     private static final class EditorSnapshot {

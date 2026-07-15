@@ -1,0 +1,59 @@
+name: 功能异常
+description: 报告下滑动作、按键标签或兼容性问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 请先确认已安装最新正式版，并在 LSPosed 中勾选“微信输入法”作用域。
+
+  - type: input
+    id: module-version
+    attributes:
+      label: 模块版本
+      placeholder: 例如 v1.11.1
+    validations:
+      required: true
+
+  - type: input
+    id: wetype-version
+    attributes:
+      label: 微信输入法版本
+      placeholder: 例如 3.5.0
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Android、ROM 与 LSPosed 版本
+      placeholder: 例如 Android 16 / ColorOS / LSPosed 1.10.x
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layout
+    attributes:
+      label: 键盘布局
+      options:
+        - 26 键
+        - 九宫格
+        - 两者都受影响
+        - 与键盘布局无关
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请写明绑定的按键、动作以及实际结果。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: LSPosed 日志
+      description: 请移除账号、输入内容等隐私信息后粘贴相关日志。
+      render: shell

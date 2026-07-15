@@ -1,7 +1,11 @@
 .gradle/
 .idea/
 local.properties
+.DS_Store
 **/build/
+/artifacts/
+/release/
+.release-temp/
 *.iml
 *.apk
 *.aab
@@ -15,3 +19,4 @@ local.properties
 *.idsig
 signing.properties
 keystore.properties
+signing.jks

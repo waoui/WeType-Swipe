@@ -1,36 +1,46 @@
-name: 自动发布正式版
+name: 构建并发布正式版
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/release.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（例如 1.12.0，不含 v）"
+        required: true
+        type: string
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
-  group: release-v1.10.0
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.actor == github.repository_owner &&
+       startsWith(github.event.issue.title, 'Publish v') &&
+       endsWith(github.event.issue.title, ' final'))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
-      VERSION: "1.10.0"
-      TAG: "v1.10.0"
       SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
       SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
       SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
       GH_TOKEN: ${{ github.token }}
+      EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
 
     steps:
-      - name: 检出源码
+      - name: 检出主分支
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: 配置 Java
@@ -39,77 +49,124 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: 配置 Gradle
+      - name: 配置 Gradle 缓存
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
 
-      - name: 恢复永久签名证书
+      - name: 解析并校验版本
         shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          TRIGGER_ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           set -euo pipefail
-          test -n "${{ secrets.SIGNING_KEY_BASE64 }}"
+          if [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
+            title="$TRIGGER_ISSUE_TITLE"
+            if [[ ! "$title" =~ ^Publish\ v([0-9]+\.[0-9]+\.[0-9]+)\ final$ ]]; then
+              echo "Invalid release issue title: $title" >&2
+              exit 1
+            fi
+            version="${BASH_REMATCH[1]}"
+          else
+            version="$REQUESTED_VERSION"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid semantic version: $version" >&2
+            exit 1
+          fi
+
+          configured="$(sed -n 's/^VERSION_NAME=//p' gradle.properties | tr -d '\r')"
+          if [[ "$configured" != "$version" ]]; then
+            echo "gradle.properties VERSION_NAME=$configured, requested=$version" >&2
+            exit 1
+          fi
+
+          notes="RELEASE_NOTES_v${version}.md"
+          test -s "$notes"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TAG=v$version" >> "$GITHUB_ENV"
+          echo "RELEASE_NOTES=$notes" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: 恢复并检查永久签名证书
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_BASE64"
           test -n "$SIGNING_STORE_PASSWORD"
           test -n "$SIGNING_KEY_ALIAS"
           test -n "$SIGNING_KEY_PASSWORD"
-          printf '%s' "${{ secrets.SIGNING_KEY_BASE64 }}" | base64 --decode > "$SIGNING_STORE_FILE"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$SIGNING_STORE_FILE"
 
-      - name: 编译正式版
+      - name: 测试并编译正式版
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon clean assembleRelease
+          ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintRelease assembleRelease
 
       - name: 校验签名并整理附件
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p release
-          APK="release/WeType_Swipe_LSPosed_v${VERSION}.apk"
-          SOURCE="release/WeType_Swipe_LSPosed_v${VERSION}_source.zip"
-          SUMS="release/WeType_Swipe_LSPosed_v${VERSION}_SHA256SUMS.txt"
+          apk="release/WeType_Swipe_LSPosed_v${VERSION}.apk"
+          source="release/WeType_Swipe_LSPosed_v${VERSION}_source.zip"
+          sums="release/WeType_Swipe_v${VERSION}_SHA256SUMS.txt"
 
-          cp app/build/outputs/apk/release/app-release.apk "$APK"
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          verification="$($apksigner verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$verification"
+          cert_digest="$(printf '%s\n' "$verification" |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+            tr '[:upper:]' '[:lower:]')"
+          test "$cert_digest" = "$EXPECTED_CERT_SHA256"
 
-          git archive --format=zip --prefix="WeType-Swipe-v${VERSION}/" HEAD -o "$SOURCE"
+          git archive --format=zip --prefix="WeType-Swipe-v${VERSION}/" HEAD -o "$source"
           (
             cd release
-            sha256sum "WeType_Swipe_LSPosed_v${VERSION}.apk" \
-              "WeType_Swipe_LSPosed_v${VERSION}_source.zip" \
-              > "WeType_Swipe_LSPosed_v${VERSION}_SHA256SUMS.txt"
+            sha256sum "$(basename "$apk")" "$(basename "$source")" > "$(basename "$sums")"
           )
-          test -s "$SUMS"
+          test -s "$sums"
 
-      - name: 读取发布说明
-        shell: bash
-        run: cp RELEASE_NOTES_v1.10.0.md release-notes.md
+      - name: 保存构建附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeType-Swipe-v${{ env.VERSION }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
 
       - name: 创建或更新 GitHub Release
         shell: bash
         run: |
           set -euo pipefail
-          FILES=(
-            "release/WeType_Swipe_LSPosed_v${VERSION}.apk"
-            "release/WeType_Swipe_LSPosed_v${VERSION}_source.zip"
-            "release/WeType_Swipe_LSPosed_v${VERSION}_SHA256SUMS.txt"
-          )
-
+          files=(release/*)
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release upload "$TAG" "${files[@]}" --clobber
             gh release edit "$TAG" \
               --title "微信输入法下滑快捷键 v${VERSION}" \
-              --notes-file release-notes.md \
+              --notes-file "$RELEASE_NOTES" \
               --latest
           else
-            gh release create "$TAG" "${FILES[@]}" \
-              --target "$GITHUB_SHA" \
+            gh release create "$TAG" "${files[@]}" \
+              --target "$RELEASE_COMMIT" \
               --title "微信输入法下滑快捷键 v${VERSION}" \
-              --notes-file release-notes.md \
+              --notes-file "$RELEASE_NOTES" \
               --latest
           fi
+
+      - name: 关闭发布触发 Issue
+        if: success() && github.event_name == 'issues'
+        shell: bash
+        env:
+          TRIGGER_ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue close "$TRIGGER_ISSUE_NUMBER" \
+            --comment "v${VERSION} 已完成构建、签名校验和正式发布。"
 
       - name: 清理签名文件
         if: always()
