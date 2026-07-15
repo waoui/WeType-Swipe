@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - ".github/workflows/ddz-build.yml"
+      - "ddz-android-src.b64"
       - ".github/workflows/ddz-pr-build.yml"
 
 permissions:
@@ -18,27 +18,10 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v4
 
-      - name: 从构建文件还原 Android 工程
+      - name: 还原 Android 工程
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          lines = Path('.github/workflows/ddz-build.yml').read_text(encoding='utf-8').splitlines()
-          payload = []
-          collecting = False
-          for line in lines:
-              stripped = line.strip()
-              if stripped.startswith('H4sI'):
-                  collecting = True
-              if collecting:
-                  if stripped == 'ARCHIVE':
-                      break
-                  payload.append(stripped)
-          if not payload:
-              raise SystemExit('未找到内嵌 Android 工程')
-          Path('/tmp/ddz.b64').write_text('\n'.join(payload) + '\n', encoding='ascii')
-          PY
-          base64 --decode /tmp/ddz.b64 > /tmp/ddz.tar.gz
+          base64 --decode ddz-android-src.b64 > /tmp/ddz.tar.gz
           tar -xzf /tmp/ddz.tar.gz
           test -f ddz-android/settings.gradle.kts
 
