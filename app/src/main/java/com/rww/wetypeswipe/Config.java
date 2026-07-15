@@ -13,6 +13,8 @@ final class Config {
     static final String KEY_CUT = "cut";
     static final String KEY_COPY = "copy";
     static final String KEY_PASTE = "paste";
+    static final String KEY_COPY_ALL = "copy_all";
+    static final String KEY_CUT_ALL = "cut_all";
     static final String KEY_PARAGRAPH_START = "paragraph_start";
     static final String KEY_PARAGRAPH_END = "paragraph_end";
     static final String KEY_SELECT_TO_PARAGRAPH_START = "select_to_paragraph_start";
@@ -27,6 +29,9 @@ final class Config {
     static final String KEY_SHOW_TRIGGER_HINT = "show_trigger_hint";
     static final String KEY_HIDE_ICON = "hide_icon";
     static final String KEY_REVISION = "revision";
+    static final String KEY_QWERTY_LABEL_PREFIX = "qwerty_label_";
+    static final String KEY_T9_LABEL_PREFIX = "t9_label_";
+    static final String LABEL_HIDDEN = "__HIDDEN__";
 
     static final String KEY_T9_2 = "t9_key_2";
     static final String KEY_T9_3 = "t9_key_3";
@@ -50,9 +55,12 @@ final class Config {
     static final int ACTION_SELECT_TO_PARAGRAPH_END = 9;
     static final int ACTION_OPEN_CLIPBOARD = 10;
     static final int ACTION_OPEN_QUICK_PHRASE = 11;
+    static final int ACTION_COPY_ALL = 12;
+    static final int ACTION_CUT_ALL = 13;
 
     static final String[] ACTION_MENU_LABELS = {
             "未绑定", "全选", "剪切", "复制", "粘贴",
+            "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
             "剪贴板", "快捷发送", "禁用下滑"
     };
@@ -63,6 +71,8 @@ final class Config {
             ACTION_CUT,
             ACTION_COPY,
             ACTION_PASTE,
+            ACTION_COPY_ALL,
+            ACTION_CUT_ALL,
             ACTION_PARAGRAPH_START,
             ACTION_PARAGRAPH_END,
             ACTION_SELECT_TO_PARAGRAPH_START,
@@ -76,6 +86,8 @@ final class Config {
     String cut = "x";
     String copy = "c";
     String paste = "v";
+    String copyAll = "";
+    String cutAll = "";
     String paragraphStart = "";
     String paragraphEnd = "";
     String selectToParagraphStart = "";
@@ -91,6 +103,8 @@ final class Config {
     int revision = 0;
 
     final int[] t9Actions = new int[10];
+    final String[] qwertyLabels = new String[26];
+    final String[] t9Labels = new String[10];
     private final int[] actionMap = new int[26];
     private boolean hasAnyBinding;
 
@@ -100,6 +114,8 @@ final class Config {
         bind(cut, ACTION_CUT);
         bind(copy, ACTION_COPY);
         bind(paste, ACTION_PASTE);
+        bind(copyAll, ACTION_COPY_ALL);
+        bind(cutAll, ACTION_CUT_ALL);
         bind(paragraphStart, ACTION_PARAGRAPH_START);
         bind(paragraphEnd, ACTION_PARAGRAPH_END);
         bind(selectToParagraphStart, ACTION_SELECT_TO_PARAGRAPH_START);
@@ -165,7 +181,7 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_OPEN_QUICK_PHRASE
+        return action >= ACTION_NONE && action <= ACTION_CUT_ALL
                 ? action : ACTION_NONE;
     }
 
@@ -180,6 +196,56 @@ final class Config {
     static int actionForMenuPosition(int position) {
         return position >= 0 && position < ACTION_MENU_VALUES.length
                 ? ACTION_MENU_VALUES[position] : ACTION_NONE;
+    }
+
+    static String qwertyLabelPrefKey(char key) {
+        if (key < 'a' || key > 'z') throw new IllegalArgumentException("key must be a..z");
+        return KEY_QWERTY_LABEL_PREFIX + key;
+    }
+
+    static String t9LabelPrefKey(int digit) {
+        if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
+        return KEY_T9_LABEL_PREFIX + digit;
+    }
+
+    static String normalizeLabelValue(String value) {
+        if (value == null) return "";
+        if (LABEL_HIDDEN.equals(value)) return LABEL_HIDDEN;
+        String clean = value.replace('\n', ' ').replace('\r', ' ').trim();
+        int count = clean.codePointCount(0, clean.length());
+        if (count > 4) clean = clean.substring(0, clean.offsetByCodePoints(0, 4));
+        return clean;
+    }
+
+    String labelFor(String key, boolean t9, int action) {
+        String configured = "";
+        if (key != null && key.length() == 1) {
+            char value = Character.toLowerCase(key.charAt(0));
+            if (t9 && value >= '2' && value <= '9') configured = t9Labels[value - '0'];
+            else if (!t9 && value >= 'a' && value <= 'z') configured = qwertyLabels[value - 'a'];
+        }
+        configured = normalizeLabelValue(configured);
+        if (LABEL_HIDDEN.equals(configured)) return "";
+        if (!configured.isEmpty()) return configured;
+        return shortActionLabel(action);
+    }
+
+    static String shortActionLabel(int action) {
+        switch (validAction(action)) {
+            case ACTION_SELECT_ALL: return "全选";
+            case ACTION_CUT: return "剪切";
+            case ACTION_COPY: return "复制";
+            case ACTION_PASTE: return "粘贴";
+            case ACTION_COPY_ALL: return "全复制";
+            case ACTION_CUT_ALL: return "全剪切";
+            case ACTION_PARAGRAPH_START: return "段首";
+            case ACTION_PARAGRAPH_END: return "段尾";
+            case ACTION_SELECT_TO_PARAGRAPH_START: return "选前";
+            case ACTION_SELECT_TO_PARAGRAPH_END: return "选后";
+            case ACTION_OPEN_CLIPBOARD: return "剪贴";
+            case ACTION_OPEN_QUICK_PHRASE: return "快捷";
+            default: return "";
+        }
     }
 
     static String t9PrefKey(int digit) {
@@ -224,6 +290,8 @@ final class Config {
             case ACTION_CUT: return "剪切";
             case ACTION_COPY: return "复制";
             case ACTION_PASTE: return "粘贴";
+            case ACTION_COPY_ALL: return "复制全部";
+            case ACTION_CUT_ALL: return "剪切全部";
             case ACTION_DISABLE: return "禁用下滑";
             case ACTION_PARAGRAPH_START: return "段首";
             case ACTION_PARAGRAPH_END: return "段尾";

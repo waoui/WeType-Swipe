@@ -12,12 +12,14 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.InputFilter;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -48,6 +50,8 @@ public final class MainActivity extends Activity {
             Config.ACTION_CUT,
             Config.ACTION_COPY,
             Config.ACTION_PASTE,
+            Config.ACTION_COPY_ALL,
+            Config.ACTION_CUT_ALL,
             Config.ACTION_PARAGRAPH_START,
             Config.ACTION_PARAGRAPH_END,
             Config.ACTION_SELECT_TO_PARAGRAPH_START,
@@ -57,7 +61,7 @@ public final class MainActivity extends Activity {
     };
 
     private static final String[] QWERTY_LABELS = {
-            "全选", "剪切", "复制", "粘贴",
+            "全选", "剪切", "复制", "粘贴", "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
             "剪贴板", "快捷发送"
     };
@@ -77,11 +81,13 @@ public final class MainActivity extends Activity {
     private final String[] qwertyKeys = new String[QWERTY_ACTIONS.length];
     private final TextView[] qwertyActionViews = new TextView[26];
     private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
+    private final String[] qwertyCustomLabels = new String[26];
     private String disabledKeys = "";
 
     private final int[] t9Actions = new int[10];
     private final TextView[] t9ActionViews = new TextView[10];
     private final LinearLayout[] t9KeyViews = new LinearLayout[10];
+    private final String[] t9CustomLabels = new String[10];
 
     private SeekBar threshold;
     private SeekBar t9Threshold;
@@ -168,7 +174,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.0 · 按键功能文字与显示选项", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.1 · 全复制、全剪切与自定义标签", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -178,7 +184,7 @@ public final class MainActivity extends Activity {
     private View buildQwertyCard() {
         LinearLayout card = createCard(
                 "26 键快捷操作",
-                "按照真实键盘排列展示。点击字母键，直接选择该键下滑时执行的动作。",
+                "点击设置动作，长按设置该按键显示的自定义标签。",
                 true);
 
         LinearLayout keyboard = vertical();
@@ -254,13 +260,17 @@ public final class MainActivity extends Activity {
         qwertyActionViews[index] = actionView;
         updateQwertyKeyView(letter);
         key.setOnClickListener(v -> showQwertyActionDialog(letter));
+        key.setOnLongClickListener(v -> {
+            showQwertyLabelDialog(letter);
+            return true;
+        });
         return key;
     }
 
     private View buildT9Card() {
         LinearLayout card = createCard(
                 "九宫格快捷操作",
-                "按照九宫格键盘排列展示。2–9 可设置，1 保持普通输入。",
+                "2–9 可设置。点击设置动作，长按设置该按键显示标签。",
                 true);
 
         LinearLayout keyboard = vertical();
@@ -333,6 +343,10 @@ public final class MainActivity extends Activity {
             key.setClickable(true);
             key.setFocusable(true);
             key.setOnClickListener(v -> showT9ActionDialog(digit));
+            key.setOnLongClickListener(v -> {
+                showT9LabelDialog(digit);
+                return true;
+            });
         } else {
             TextView note = text("普通键", 9, COLOR_SECONDARY);
             note.setGravity(Gravity.CENTER);
@@ -498,6 +512,80 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
 
+
+    private interface LabelValueChanged { void apply(String value); }
+
+    private void showQwertyLabelDialog(char letter) {
+        int action = actionForQwertyKey(String.valueOf(letter));
+        showLabelDialog(Character.toUpperCase(letter) + " 键显示标签",
+                qwertyCustomLabels[letter - 'a'], Config.shortActionLabel(action), value -> {
+                    qwertyCustomLabels[letter - 'a'] = value;
+                    updateQwertyKeyView(letter);
+                });
+    }
+
+    private void showT9LabelDialog(int digit) {
+        int action = t9Actions[digit];
+        showLabelDialog(Config.t9Label(digit) + " 显示标签",
+                t9CustomLabels[digit], Config.shortActionLabel(action), value -> {
+                    t9CustomLabels[digit] = value;
+                    updateT9View(digit);
+                });
+    }
+
+    private void showLabelDialog(String title, String currentValue,
+                                 String automaticValue, LabelValueChanged changed) {
+        String current = Config.normalizeLabelValue(currentValue);
+        int selected = Config.LABEL_HIDDEN.equals(current) ? 2 : (current.isEmpty() ? 0 : 1);
+        String autoText = automaticValue == null || automaticValue.isEmpty()
+                ? "自动（当前无动作）" : "自动（" + automaticValue + "）";
+        String customText = current.isEmpty() || Config.LABEL_HIDDEN.equals(current)
+                ? "自定义文字" : "自定义（" + current + "）";
+        String[] options = {autoText, customText, "隐藏此按键标签"};
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(options, selected, null)
+                .setNegativeButton("取消", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
+                (parent, view, position, id) -> {
+                    dialog.dismiss();
+                    if (position == 0) changed.apply("");
+                    else if (position == 2) changed.apply(Config.LABEL_HIDDEN);
+                    else showCustomLabelInput(title, current, changed);
+                }));
+        dialog.show();
+    }
+
+    private void showCustomLabelInput(String title, String currentValue, LabelValueChanged changed) {
+        EditText input = new EditText(this);
+        String current = Config.normalizeLabelValue(currentValue);
+        if (!Config.LABEL_HIDDEN.equals(current)) input.setText(current);
+        input.setSingleLine(true);
+        input.setHint("最多 4 个字符，留空恢复自动");
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(4)});
+        input.setSelectAllOnFocus(true);
+        int padding = dp(20);
+        LinearLayout host = vertical();
+        host.setPadding(padding, dp(8), padding, 0);
+        host.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(title + " · 自定义")
+                .setView(host)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String value = Config.normalizeLabelValue(input.getText().toString());
+                    changed.apply(value);
+                    dialog.dismiss();
+                }));
+        dialog.show();
+        input.requestFocus();
+    }
+
     private void assignQwertyAction(String key, int action) {
         String movedFrom = null;
         int previousAction = actionForQwertyKey(key);
@@ -608,14 +696,22 @@ public final class MainActivity extends Activity {
         qwertyKeys[1] = normalizedKey(prefs.getString(Config.KEY_CUT, "x"));
         qwertyKeys[2] = normalizedKey(prefs.getString(Config.KEY_COPY, "c"));
         qwertyKeys[3] = normalizedKey(prefs.getString(Config.KEY_PASTE, "v"));
-        qwertyKeys[4] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_START, ""));
-        qwertyKeys[5] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_END, ""));
-        qwertyKeys[6] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, ""));
-        qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));
-        qwertyKeys[8] = normalizedKey(prefs.getString(Config.KEY_OPEN_CLIPBOARD, ""));
-        qwertyKeys[9] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));
+        qwertyKeys[4] = normalizedKey(prefs.getString(Config.KEY_COPY_ALL, ""));
+        qwertyKeys[5] = normalizedKey(prefs.getString(Config.KEY_CUT_ALL, ""));
+        qwertyKeys[6] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_START, ""));
+        qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_END, ""));
+        qwertyKeys[8] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, ""));
+        qwertyKeys[9] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));
+        qwertyKeys[10] = normalizedKey(prefs.getString(Config.KEY_OPEN_CLIPBOARD, ""));
+        qwertyKeys[11] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));
         disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
+        for (char key = 'a'; key <= 'z'; key++) {
+            qwertyCustomLabels[key - 'a'] = Config.normalizeLabelValue(
+                    prefs.getString(Config.qwertyLabelPrefKey(key), ""));
+        }
         for (int digit = 2; digit <= 9; digit++) {
+            t9CustomLabels[digit] = Config.normalizeLabelValue(
+                    prefs.getString(Config.t9LabelPrefKey(digit), ""));
             t9Actions[digit] = Config.validAction(
                     prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
         }
@@ -643,17 +739,17 @@ public final class MainActivity extends Activity {
                 .putString(Config.KEY_CUT, qwertyKeys[1])
                 .putString(Config.KEY_COPY, qwertyKeys[2])
                 .putString(Config.KEY_PASTE, qwertyKeys[3])
-                .putString(Config.KEY_PARAGRAPH_START, qwertyKeys[4])
-                .putString(Config.KEY_PARAGRAPH_END, qwertyKeys[5])
-                .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[6])
-                .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[7])
-                .putString(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[8])
-                .putString(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[9])
+                .putString(Config.KEY_COPY_ALL, qwertyKeys[4])
+                .putString(Config.KEY_CUT_ALL, qwertyKeys[5])
+                .putString(Config.KEY_PARAGRAPH_START, qwertyKeys[6])
+                .putString(Config.KEY_PARAGRAPH_END, qwertyKeys[7])
+                .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[8])
+                .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[9])
+                .putString(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[10])
+                .putString(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11])
                 .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
                 .remove("text_start")
                 .remove("text_end")
-                .remove("copy_all")
-                .remove("cut_all")
                 .putInt(Config.KEY_THRESHOLD, threshold.getProgress() + 6)
                 .putInt(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10)
                 .putBoolean(Config.KEY_VIBRATION, vibration.isChecked())
@@ -662,8 +758,14 @@ public final class MainActivity extends Activity {
                 .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon)
                 .putInt(Config.KEY_REVISION, revision);
 
+        for (char key = 'a'; key <= 'z'; key++) {
+            editor.putString(Config.qwertyLabelPrefKey(key),
+                    Config.normalizeLabelValue(qwertyCustomLabels[key - 'a']));
+        }
         for (int digit = 2; digit <= 9; digit++) {
             editor.putInt(Config.t9PrefKey(digit), t9Actions[digit]);
+            editor.putString(Config.t9LabelPrefKey(digit),
+                    Config.normalizeLabelValue(t9CustomLabels[digit]));
         }
 
         if (!editor.commit()) {
@@ -678,12 +780,14 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_CUT, qwertyKeys[1]);
         changed.putExtra(Config.KEY_COPY, qwertyKeys[2]);
         changed.putExtra(Config.KEY_PASTE, qwertyKeys[3]);
-        changed.putExtra(Config.KEY_PARAGRAPH_START, qwertyKeys[4]);
-        changed.putExtra(Config.KEY_PARAGRAPH_END, qwertyKeys[5]);
-        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[6]);
-        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[7]);
-        changed.putExtra(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[8]);
-        changed.putExtra(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[9]);
+        changed.putExtra(Config.KEY_COPY_ALL, qwertyKeys[4]);
+        changed.putExtra(Config.KEY_CUT_ALL, qwertyKeys[5]);
+        changed.putExtra(Config.KEY_PARAGRAPH_START, qwertyKeys[6]);
+        changed.putExtra(Config.KEY_PARAGRAPH_END, qwertyKeys[7]);
+        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[8]);
+        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[9]);
+        changed.putExtra(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[10]);
+        changed.putExtra(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11]);
         changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
@@ -691,8 +795,14 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_SHOW_KEY_LABELS, showKeyLabels.isChecked());
         changed.putExtra(Config.KEY_SHOW_TRIGGER_HINT, showTriggerHint.isChecked());
         changed.putExtra(Config.KEY_REVISION, revision);
+        for (char key = 'a'; key <= 'z'; key++) {
+            changed.putExtra(Config.qwertyLabelPrefKey(key),
+                    Config.normalizeLabelValue(qwertyCustomLabels[key - 'a']));
+        }
         for (int digit = 2; digit <= 9; digit++) {
             changed.putExtra(Config.t9PrefKey(digit), t9Actions[digit]);
+            changed.putExtra(Config.t9LabelPrefKey(digit),
+                    Config.normalizeLabelValue(t9CustomLabels[digit]));
         }
         sendBroadcast(changed);
 
@@ -715,7 +825,7 @@ public final class MainActivity extends Activity {
         if (keyView == null || actionView == null) return;
 
         int action = actionForQwertyKey(String.valueOf(letter));
-        actionView.setText(shortActionName(action));
+        actionView.setText(previewLabel(qwertyCustomLabels[index], action));
         if (action == Config.ACTION_DISABLE) {
             actionView.setTextColor(COLOR_DANGER);
             keyView.setBackground(rounded(COLOR_DANGER_SOFT, 9, 1, Color.rgb(245, 190, 190)));
@@ -731,7 +841,7 @@ public final class MainActivity extends Activity {
     private void updateT9View(int digit) {
         if (t9ActionViews[digit] == null || t9KeyViews[digit] == null) return;
         int action = t9Actions[digit];
-        t9ActionViews[digit].setText(shortActionName(action));
+        t9ActionViews[digit].setText(previewLabel(t9CustomLabels[digit], action));
         if (action == Config.ACTION_DISABLE) {
             t9ActionViews[digit].setTextColor(COLOR_DANGER);
             t9KeyViews[digit].setBackground(
@@ -746,12 +856,22 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private String previewLabel(String configured, int action) {
+        if (action == Config.ACTION_NONE) return "—";
+        String normalized = Config.normalizeLabelValue(configured);
+        if (Config.LABEL_HIDDEN.equals(normalized)) return "隐藏";
+        if (!normalized.isEmpty()) return normalized;
+        return shortActionName(action);
+    }
+
     private String shortActionName(int action) {
         switch (Config.validAction(action)) {
             case Config.ACTION_SELECT_ALL: return "全选";
             case Config.ACTION_CUT: return "剪切";
             case Config.ACTION_COPY: return "复制";
             case Config.ACTION_PASTE: return "粘贴";
+            case Config.ACTION_COPY_ALL: return "全复制";
+            case Config.ACTION_CUT_ALL: return "全剪切";
             case Config.ACTION_DISABLE: return "禁用";
             case Config.ACTION_PARAGRAPH_START: return "段首";
             case Config.ACTION_PARAGRAPH_END: return "段尾";

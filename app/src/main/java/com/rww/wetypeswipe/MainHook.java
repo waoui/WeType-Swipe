@@ -117,7 +117,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.0 entered target package");
+            logInfo("v1.11.1 entered target package");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -289,6 +289,8 @@ public final class MainHook extends XposedModule {
             config.cut = intent.getStringExtra(Config.KEY_CUT);
             config.copy = intent.getStringExtra(Config.KEY_COPY);
             config.paste = intent.getStringExtra(Config.KEY_PASTE);
+            config.copyAll = intent.getStringExtra(Config.KEY_COPY_ALL);
+            config.cutAll = intent.getStringExtra(Config.KEY_CUT_ALL);
             config.paragraphStart = intent.getStringExtra(Config.KEY_PARAGRAPH_START);
             config.paragraphEnd = intent.getStringExtra(Config.KEY_PARAGRAPH_END);
             config.selectToParagraphStart = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_START);
@@ -300,6 +302,8 @@ public final class MainHook extends XposedModule {
             if (config.cut == null) config.cut = "x";
             if (config.copy == null) config.copy = "c";
             if (config.paste == null) config.paste = "v";
+            if (config.copyAll == null) config.copyAll = "";
+            if (config.cutAll == null) config.cutAll = "";
             if (config.paragraphStart == null) config.paragraphStart = "";
             if (config.paragraphEnd == null) config.paragraphEnd = "";
             if (config.selectToParagraphStart == null) config.selectToParagraphStart = "";
@@ -313,9 +317,15 @@ public final class MainHook extends XposedModule {
             config.showKeyLabels = intent.getBooleanExtra(Config.KEY_SHOW_KEY_LABELS, true);
             config.showTriggerHint = intent.getBooleanExtra(Config.KEY_SHOW_TRIGGER_HINT, true);
             config.revision = intent.getIntExtra(Config.KEY_REVISION, 0);
+            for (char key = 'a'; key <= 'z'; key++) {
+                config.qwertyLabels[key - 'a'] = Config.normalizeLabelValue(
+                        intent.getStringExtra(Config.qwertyLabelPrefKey(key)));
+            }
             for (int digit = 2; digit <= 9; digit++) {
                 config.t9Actions[digit] = Config.validAction(
                         intent.getIntExtra(Config.t9PrefKey(digit), Config.ACTION_NONE));
+                config.t9Labels[digit] = Config.normalizeLabelValue(
+                        intent.getStringExtra(Config.t9LabelPrefKey(digit)));
             }
             config.rebuildActionMap();
             return config;
@@ -333,6 +343,8 @@ public final class MainHook extends XposedModule {
                     .putString(Config.KEY_CUT, config.cut)
                     .putString(Config.KEY_COPY, config.copy)
                     .putString(Config.KEY_PASTE, config.paste)
+                    .putString(Config.KEY_COPY_ALL, config.copyAll)
+                    .putString(Config.KEY_CUT_ALL, config.cutAll)
                     .putString(Config.KEY_PARAGRAPH_START, config.paragraphStart)
                     .putString(Config.KEY_PARAGRAPH_END, config.paragraphEnd)
                     .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, config.selectToParagraphStart)
@@ -346,8 +358,14 @@ public final class MainHook extends XposedModule {
                     .putBoolean(Config.KEY_SHOW_KEY_LABELS, config.showKeyLabels)
                     .putBoolean(Config.KEY_SHOW_TRIGGER_HINT, config.showTriggerHint)
                     .putInt(Config.KEY_REVISION, config.revision);
+            for (char key = 'a'; key <= 'z'; key++) {
+                editor.putString(Config.qwertyLabelPrefKey(key),
+                        Config.normalizeLabelValue(config.qwertyLabels[key - 'a']));
+            }
             for (int digit = 2; digit <= 9; digit++) {
                 editor.putInt(Config.t9PrefKey(digit), config.t9Actions[digit]);
+                editor.putString(Config.t9LabelPrefKey(digit),
+                        Config.normalizeLabelValue(config.t9Labels[digit]));
             }
             editor.commit();
         } catch (Throwable throwable) {
@@ -368,6 +386,8 @@ public final class MainHook extends XposedModule {
             config.cut = prefs.getString(Config.KEY_CUT, "x");
             config.copy = prefs.getString(Config.KEY_COPY, "c");
             config.paste = prefs.getString(Config.KEY_PASTE, "v");
+            config.copyAll = prefs.getString(Config.KEY_COPY_ALL, "");
+            config.cutAll = prefs.getString(Config.KEY_CUT_ALL, "");
             config.paragraphStart = prefs.getString(Config.KEY_PARAGRAPH_START, "");
             config.paragraphEnd = prefs.getString(Config.KEY_PARAGRAPH_END, "");
             config.selectToParagraphStart = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, "");
@@ -381,9 +401,15 @@ public final class MainHook extends XposedModule {
             config.showKeyLabels = prefs.getBoolean(Config.KEY_SHOW_KEY_LABELS, true);
             config.showTriggerHint = prefs.getBoolean(Config.KEY_SHOW_TRIGGER_HINT, true);
             config.revision = prefs.getInt(Config.KEY_REVISION, 0);
+            for (char key = 'a'; key <= 'z'; key++) {
+                config.qwertyLabels[key - 'a'] = Config.normalizeLabelValue(
+                        prefs.getString(Config.qwertyLabelPrefKey(key), ""));
+            }
             for (int digit = 2; digit <= 9; digit++) {
                 config.t9Actions[digit] = Config.validAction(
                         prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
+                config.t9Labels[digit] = Config.normalizeLabelValue(
+                        prefs.getString(Config.t9LabelPrefKey(digit), ""));
             }
             config.rebuildActionMap();
             cachedConfig = config;
@@ -533,7 +559,7 @@ public final class MainHook extends XposedModule {
                 boolean t9 = value >= '1' && value <= '9';
                 int action = config.actionFor(key, t9);
                 label = action == Config.ACTION_NONE || action == Config.ACTION_DISABLE
-                        ? "" : shortActionLabel(action);
+                        ? "" : config.labelFor(key, t9, action);
             }
             nativeSingleKeyLabelCache.put(model, label);
         }
@@ -707,7 +733,8 @@ public final class MainHook extends XposedModule {
             List<Float> positions = centers.get(key);
             if (positions == null) continue;
             for (Float x : positions) {
-                if (x != null) drawKeyFunctionText(canvas, shortActionLabel(action), x, baseline);
+                if (x != null) drawKeyFunctionText(canvas,
+                        config.labelFor(key, false, action), x, baseline);
             }
         }
     }
@@ -898,7 +925,7 @@ public final class MainHook extends XposedModule {
             if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
             float[] item = geometry.get(key);
             if (item == null || item.length < 2) continue;
-            drawKeyFunctionText(canvas, shortActionLabel(action), item[0], item[1]);
+            drawKeyFunctionText(canvas, config.labelFor(key, t9, action), item[0], item[1]);
         }
     }
 
@@ -1241,20 +1268,7 @@ public final class MainHook extends XposedModule {
     }
 
     private static String shortActionLabel(int action) {
-        switch (Config.validAction(action)) {
-            case Config.ACTION_SELECT_ALL: return "全选";
-            case Config.ACTION_CUT: return "剪切";
-            case Config.ACTION_COPY: return "复制";
-            case Config.ACTION_PASTE: return "粘贴";
-            case Config.ACTION_DISABLE: return "";
-            case Config.ACTION_PARAGRAPH_START: return "段首";
-            case Config.ACTION_PARAGRAPH_END: return "段尾";
-            case Config.ACTION_SELECT_TO_PARAGRAPH_START: return "选前";
-            case Config.ACTION_SELECT_TO_PARAGRAPH_END: return "选后";
-            case Config.ACTION_OPEN_CLIPBOARD: return "剪贴";
-            case Config.ACTION_OPEN_QUICK_PHRASE: return "快捷";
-            default: return "";
-        }
+        return Config.shortActionLabel(action);
     }
 
     private static Class<?> findKeyboardBase(Class<?> type) {
@@ -1781,6 +1795,8 @@ public final class MainHook extends XposedModule {
             boolean success;
             if (isParagraphAction(action)) {
                 success = performParagraphAction(connection, action);
+            } else if (isCompoundAction(action)) {
+                success = performCompoundAction(ime, keyboard, connection, action);
             } else {
                 success = performMenuAction(ime, connection, Config.menuIdFor(action));
             }
@@ -1791,6 +1807,45 @@ public final class MainHook extends XposedModule {
     }
 
 
+
+
+    private static boolean isCompoundAction(int action) {
+        return action == Config.ACTION_COPY_ALL || action == Config.ACTION_CUT_ALL;
+    }
+
+    private boolean performCompoundAction(InputMethodService ime, View keyboard,
+                                          InputConnection connection, int action) {
+        try {
+            try { connection.finishComposingText(); } catch (Throwable ignored) {}
+            final EditorSnapshot original = readEditorSnapshot(connection);
+            if (original != null && original.left == original.right
+                    && original.before.isEmpty() && original.after.isEmpty()) return false;
+            if (!performMenuAction(ime, connection, android.R.id.selectAll)) return false;
+
+            keyboard.postDelayed(() -> {
+                InputConnection active = null;
+                try { active = ime.getCurrentInputConnection(); } catch (Throwable ignored) {}
+                if (active == null) return;
+                int target = action == Config.ACTION_COPY_ALL ? android.R.id.copy : android.R.id.cut;
+                boolean success = performMenuAction(ime, active, target);
+                if (!success) {
+                    logError(Config.actionName(action) + " failed: target editor rejected action", null);
+                }
+                if (original != null && (action == Config.ACTION_COPY_ALL || !success)) {
+                    try {
+                        if (active.setSelection(original.left, original.right)) {
+                            currentSelectionStart = original.left;
+                            currentSelectionEnd = original.right;
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }, 32L);
+            return true;
+        } catch (Throwable throwable) {
+            logError(Config.actionName(action) + " failed", throwable);
+            return false;
+        }
+    }
 
     private static boolean isNativePanelAction(int action) {
         return action == Config.ACTION_OPEN_CLIPBOARD
