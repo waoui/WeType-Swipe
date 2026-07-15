@@ -43,7 +43,21 @@ jobs:
 
       - name: 编译 Debug APK
         shell: bash
-        run: ./gradlew -p ddz-android --no-daemon --stacktrace assembleDebug
+        run: |
+          set +e
+          ./gradlew -p ddz-android --no-daemon assembleDebug > build.log 2>&1
+          status=$?
+          tail -n 160 build.log
+          exit $status
+
+      - name: 上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DdzAiTrainer-v0.1.1-build-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: 整理 APK
         shell: bash
