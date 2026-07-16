@@ -23,7 +23,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' &&
-       github.actor == github.repository_owner &&
+       github.event.issue.user.login == github.repository_owner &&
        startsWith(github.event.issue.title, 'Publish v') &&
        endsWith(github.event.issue.title, ' final'))
     runs-on: ubuntu-latest
@@ -120,10 +120,11 @@ jobs:
           test -x "$apksigner"
           verification="$($apksigner verify --verbose --print-certs "$apk")"
           printf '%s\n' "$verification"
-          cert_digest="$(printf '%s\n' "$verification" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
-            tr '[:upper:]' '[:lower:]')"
-          test "$cert_digest" = "$EXPECTED_CERT_SHA256"
+          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          case "$normalized" in
+            *"$EXPECTED_CERT_SHA256"*) ;;
+            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
+          esac
 
           git archive --format=zip --prefix="WeType-Swipe-v${VERSION}/" HEAD -o "$source"
           (
@@ -148,6 +149,7 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
             gh release edit "$TAG" \
+              --target "$RELEASE_COMMIT" \
               --title "微信输入法下滑快捷键 v${VERSION}" \
               --notes-file "$RELEASE_NOTES" \
               --latest
