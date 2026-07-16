@@ -7,6 +7,11 @@ on:
     paths:
       - "tools/patch_wetype_352_test.py"
       - ".github/workflows/build-wetype-352-test.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/patch_wetype_352_test.py"
+      - ".github/workflows/build-wetype-352-test.yml"
   workflow_dispatch:
 
 permissions:
