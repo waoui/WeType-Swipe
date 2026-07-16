@@ -1,6 +1,10 @@
 name: 构建并发布正式版
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
       version:
@@ -21,6 +25,7 @@ concurrency:
 jobs:
   release:
     if: >-
+      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' &&
        github.event.issue.user.login == github.repository_owner &&
@@ -59,15 +64,20 @@ jobs:
           TRIGGER_ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="1.11.2"
+            release_commit="$(git rev-parse HEAD^)"
+          elif [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
             title="$TRIGGER_ISSUE_TITLE"
             if [[ ! "$title" =~ ^Publish\ v([0-9]+\.[0-9]+\.[0-9]+)\ final$ ]]; then
               echo "Invalid release issue title: $title" >&2
               exit 1
             fi
             version="${BASH_REMATCH[1]}"
+            release_commit="$(git rev-parse HEAD)"
           else
             version="$REQUESTED_VERSION"
+            release_commit="$(git rev-parse HEAD)"
           fi
 
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -86,7 +96,7 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "TAG=v$version" >> "$GITHUB_ENV"
           echo "RELEASE_NOTES=$notes" >> "$GITHUB_ENV"
-          echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$release_commit" >> "$GITHUB_ENV"
 
       - name: 恢复并检查永久签名证书
         shell: bash
@@ -126,7 +136,7 @@ jobs:
             *) echo "Unexpected signing certificate" >&2; exit 1 ;;
           esac
 
-          git archive --format=zip --prefix="WeType-Swipe-v${VERSION}/" HEAD -o "$source"
+          git archive --format=zip --prefix="WeType-Swipe-v${VERSION}/" "$RELEASE_COMMIT" -o "$source"
           (
             cd release
             sha256sum "$(basename "$apk")" "$(basename "$source")" > "$(basename "$sums")"
