@@ -65,38 +65,51 @@ jobs:
         shell: bash
         run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintDebug assembleRelease
 
-      - name: 校验签名并整理测试附件
+      - name: 校验永久签名
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts source-package/WeType-Swipe-v1.11.2-test1
-          apk="artifacts/WeType_Swipe_LSPosed_v1.11.2-test1.apk"
-          source_zip="artifacts/WeType_Swipe_LSPosed_v1.11.2-test1_source.zip"
-          sums="artifacts/WeType_Swipe_v1.11.2-test1_SHA256SUMS.txt"
-
-          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          apk="app/build/outputs/apk/release/app-release.apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner"
           verification="$($apksigner verify --verbose --print-certs "$apk")"
           printf '%s\n' "$verification"
-          cert_digest="$(printf '%s\n' "$verification" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
-            tr '[:upper:]' '[:lower:]')"
-          test "$cert_digest" = "$EXPECTED_CERT_SHA256"
+          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          case "$normalized" in
+            *"$EXPECTED_CERT_SHA256"*) ;;
+            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
+          esac
 
-          rsync -a ./ source-package/WeType-Swipe-v1.11.2-test1/ \
-            --exclude '.git/' \
-            --exclude '.gradle/' \
-            --exclude '**/build/' \
-            --exclude 'artifacts/' \
-            --exclude 'source-package/' \
-            --exclude 'signing.jks'
-          (cd source-package && zip -qr "../$source_zip" WeType-Swipe-v1.11.2-test1)
+      - name: 整理测试附件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp app/build/outputs/apk/release/app-release.apk \
+            artifacts/WeType_Swipe_LSPosed_v1.11.2-test1.apk
           cp TEST_NOTES_v1.11.2-test1.md artifacts/
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path.cwd()
+          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.2-test1_source.zip"
+          prefix = Path("WeType-Swipe-v1.11.2-test1")
+          excluded_dirs = {".git", ".gradle", ".idea", "build", "artifacts", "release", "source-package"}
+          excluded_names = {"signing.jks", "local.properties"}
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for path in sorted(root.rglob("*")):
+                  relative = path.relative_to(root)
+                  if any(part in excluded_dirs for part in relative.parts):
+                      continue
+                  if path.name in excluded_names or not path.is_file():
+                      continue
+                  archive.write(path, (prefix / relative).as_posix())
+          PY
           (cd artifacts && sha256sum \
             WeType_Swipe_LSPosed_v1.11.2-test1.apk \
             WeType_Swipe_LSPosed_v1.11.2-test1_source.zip \
-            > "$(basename "$sums")")
+            > WeType_Swipe_v1.11.2-test1_SHA256SUMS.txt)
 
       - name: 上传测试包
         uses: actions/upload-artifact@v4
