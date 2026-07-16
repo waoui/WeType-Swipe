@@ -119,7 +119,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.1 entered target package");
+            logInfo("v1.11.2 entered target package; WeType 3.5.0/3.5.2 adapters enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -2017,11 +2017,18 @@ public final class MainHook extends XposedModule {
         try {
             if (view.hasOnClickListeners() || view.isClickable()) {
                 View.OnClickListener listener = readOnClickListener(view);
-                if (listener != null && "com.tencent.wetype.plugin.hld.utils.h3".equals(listener.getClass().getName())) {
+                String listenerClass = listener == null ? "" : listener.getClass().getName();
+                boolean supportedListener = "com.tencent.wetype.plugin.hld.utils.h3".equals(listenerClass)
+                        || "com.tencent.wetype.plugin.hld.utils.o1".equals(listenerClass);
+                if (listener != null && supportedListener) {
                     Object callback = readNamedField(listener, "c");
-                    if (callback != null
-                            && "com.tencent.wetype.plugin.hld.toolbar.a0$b".equals(callback.getClass().getName())
+                    String callbackClass = callback == null ? "" : callback.getClass().getName();
+                    boolean supportedCallback = "com.tencent.wetype.plugin.hld.toolbar.a0$b".equals(callbackClass)
+                            || "com.tencent.wetype.plugin.hld.toolbar.A$b".equals(callbackClass);
+                    if (callback != null && supportedCallback
                             && readNamedField(callback, "this$0") != null) {
+                        logInfo("toolbar carrier matched listener=" + listenerClass
+                                + " callback=" + callbackClass);
                         return new Object[]{view, listener, callback};
                     }
                 }
