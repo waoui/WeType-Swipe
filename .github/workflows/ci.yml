@@ -28,7 +28,7 @@ jobs:
           java-version: "17"
 
       - name: 配置 Gradle 缓存
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: 单元测试、Lint 与 Debug 构建
         shell: bash
