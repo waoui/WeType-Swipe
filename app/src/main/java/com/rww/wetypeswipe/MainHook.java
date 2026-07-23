@@ -447,6 +447,12 @@ public final class MainHook extends XposedModule {
             return chain.proceed();
         }
 
+        if (isHandwritingContext(view)) {
+            tracker.clear(view);
+            view.post(() -> hideKeyboardHint(0L));
+            return chain.proceed();
+        }
+
         ensureKeyboardLabelDrawHook(view.getClass(), view);
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !targetCacheLoaded) {
             ensureConfigSync(view.getContext());
@@ -530,6 +536,10 @@ public final class MainHook extends XposedModule {
         View keyboard = nativeSingleKeyParent(model);
         Rect drawRect = nativeSingleKeyDrawRect(model);
         if (keyboard == null || drawRect == null || drawRect.isEmpty()) return;
+        if (isHandwritingContext(keyboard)) {
+            nativeSingleKeyLabelCache.remove(model);
+            return;
+        }
 
         View previous = nativeSingleKeyActiveKeyboardRef.get();
         if (previous != keyboard) {
@@ -665,6 +675,7 @@ public final class MainHook extends XposedModule {
 
     private void drawKeyboardFunctionLabels(View keyboard, Canvas canvas) {
         if (keyboard == null || canvas == null || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
+        if (isHandwritingContext(keyboard)) return;
         Config config = cachedConfig;
         if (config == null || !config.hasAnyBinding()) return;
         try {
@@ -1282,6 +1293,16 @@ public final class MainHook extends XposedModule {
             if (KEYBOARD_BASE.equals(type.getName())) return type;
         }
         return null;
+    }
+
+    private static boolean isHandwritingContext(View keyboard) {
+        View current = keyboard;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            if (KeyboardModeGuard.isHandwritingClassName(current.getClass().getName())) return true;
+            Object parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        return false;
     }
 
     private Object interceptKeyboardTouch(XposedInterface.Chain chain, View keyboard, MotionEvent event) throws Throwable {
