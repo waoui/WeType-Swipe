@@ -34,6 +34,20 @@ public final class ConfigTest {
         }
     }
 
+    @Test public void undoAndRedoRemainBindableAndUseAndroidMenuIds() {
+        Config config = new Config();
+        config.undo = "u";
+        config.redo = "r";
+        config.rebuildActionMap();
+
+        assertEquals(Config.ACTION_UNDO, config.actionFor("u", false));
+        assertEquals(Config.ACTION_REDO, config.actionFor("r", false));
+        assertEquals(android.R.id.undo, Config.menuIdFor(Config.ACTION_UNDO));
+        assertEquals(android.R.id.redo, Config.menuIdFor(Config.ACTION_REDO));
+        assertEquals("撤销", Config.shortActionLabel(Config.ACTION_UNDO));
+        assertEquals("重做", Config.actionName(Config.ACTION_REDO));
+    }
+
     @Test public void labelNormalizationIsUnicodeSafe() {
         assertEquals("", Config.normalizeLabelValue(null));
         assertEquals(Config.LABEL_HIDDEN,

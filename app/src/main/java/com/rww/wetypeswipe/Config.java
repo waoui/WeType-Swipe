@@ -21,6 +21,8 @@ final class Config {
     static final String KEY_SELECT_TO_PARAGRAPH_END = "select_to_paragraph_end";
     static final String KEY_OPEN_CLIPBOARD = "open_clipboard";
     static final String KEY_OPEN_QUICK_PHRASE = "open_quick_phrase";
+    static final String KEY_UNDO = "undo";
+    static final String KEY_REDO = "redo";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
@@ -57,12 +59,14 @@ final class Config {
     static final int ACTION_OPEN_QUICK_PHRASE = 11;
     static final int ACTION_COPY_ALL = 12;
     static final int ACTION_CUT_ALL = 13;
+    static final int ACTION_UNDO = 14;
+    static final int ACTION_REDO = 15;
 
     static final String[] ACTION_MENU_LABELS = {
             "未绑定", "全选", "剪切", "复制", "粘贴",
             "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
-            "剪贴板", "快捷发送", "禁用下滑"
+            "剪贴板", "快捷发送", "撤销", "重做", "禁用下滑"
     };
 
     private static final int[] ACTION_MENU_VALUES = {
@@ -79,6 +83,8 @@ final class Config {
             ACTION_SELECT_TO_PARAGRAPH_END,
             ACTION_OPEN_CLIPBOARD,
             ACTION_OPEN_QUICK_PHRASE,
+            ACTION_UNDO,
+            ACTION_REDO,
             ACTION_DISABLE
     };
 
@@ -94,6 +100,8 @@ final class Config {
     String selectToParagraphEnd = "";
     String openClipboard = "";
     String openQuickPhrase = "";
+    String undo = "";
+    String redo = "";
     String disabledKeys = "";
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
@@ -122,6 +130,8 @@ final class Config {
         bind(selectToParagraphEnd, ACTION_SELECT_TO_PARAGRAPH_END);
         bind(openClipboard, ACTION_OPEN_CLIPBOARD);
         bind(openQuickPhrase, ACTION_OPEN_QUICK_PHRASE);
+        bind(undo, ACTION_UNDO);
+        bind(redo, ACTION_REDO);
         bindDisabled(disabledKeys);
 
         hasAnyBinding = false;
@@ -181,7 +191,7 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_CUT_ALL
+        return action >= ACTION_NONE && action <= ACTION_REDO
                 ? action : ACTION_NONE;
     }
 
@@ -244,6 +254,8 @@ final class Config {
             case ACTION_SELECT_TO_PARAGRAPH_END: return "选后";
             case ACTION_OPEN_CLIPBOARD: return "剪贴";
             case ACTION_OPEN_QUICK_PHRASE: return "快捷";
+            case ACTION_UNDO: return "撤销";
+            case ACTION_REDO: return "重做";
             default: return "";
         }
     }
@@ -281,6 +293,8 @@ final class Config {
         if (action == ACTION_CUT) return android.R.id.cut;
         if (action == ACTION_COPY) return android.R.id.copy;
         if (action == ACTION_PASTE) return android.R.id.paste;
+        if (action == ACTION_UNDO) return android.R.id.undo;
+        if (action == ACTION_REDO) return android.R.id.redo;
         return 0;
     }
 
@@ -299,6 +313,8 @@ final class Config {
             case ACTION_SELECT_TO_PARAGRAPH_END: return "选至段尾";
             case ACTION_OPEN_CLIPBOARD: return "剪贴板";
             case ACTION_OPEN_QUICK_PHRASE: return "快捷发送";
+            case ACTION_UNDO: return "撤销";
+            case ACTION_REDO: return "重做";
             default: return "未绑定";
         }
     }
