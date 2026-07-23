@@ -1,0 +1,152 @@
+name: 构建 v1.11.3-test2 手写隔离测试包
+
+on:
+  push:
+    branches:
+      - codex/release-v1.11.3
+    paths:
+      - ".github/workflows/build-v1.11.3-test2.yml"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: build-v1.11.3-test2
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
+
+    steps:
+      - name: 检出修复分支
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 设置测试版标识
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's/^VERSION_NAME=1\.11\.3$/VERSION_NAME=1.11.3-test2/' gradle.properties
+          sed -i 's/v1\.11\.3 · 修复原生面板与符号页标签/v1.11.3-test2 · 增加手写键盘隔离/' app/src/main/java/com/rww/wetypeswipe/MainActivity.java
+          sed -i 's/v1\.11\.3 entered target package/v1.11.3-test2 entered target package/' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          cat > TEST_NOTES_v1.11.3-test2.md <<'EOF'
+          # 微信输入法下滑快捷键 v1.11.3-test2
+
+          ## 新增修复
+
+          - 手写找字及其他手写键盘界面不再显示下滑功能标签。
+          - 手写键盘界面不再执行下滑快捷动作，避免影响手写和找字操作。
+          - 保留 v1.11.3-test1 已验证的原生剪贴板、快捷发送／常用语和符号页标签修复。
+
+          ## 真机验收
+
+          1. 进入手写找字界面，确认所有下滑功能标签消失。
+          2. 在原标签所在区域下滑，确认不会执行任何模块动作。
+          3. 切回 26 键和九宫格，确认已绑定标签重新显示且下滑动作正常。
+          4. 再次验证原生剪贴板和快捷发送／常用语。
+          5. 检查数字／符号页面仍不显示错误标签。
+          EOF
+          sed -i 's/^          //' TEST_NOTES_v1.11.3-test2.md
+
+      - name: 恢复永久签名证书
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_BASE64"
+          test -n "$SIGNING_STORE_PASSWORD"
+          test -n "$SIGNING_KEY_ALIAS"
+          test -n "$SIGNING_KEY_PASSWORD"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$SIGNING_STORE_FILE"
+
+      - name: 单元测试、Lint 与正式构建
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintDebug assembleRelease
+
+      - name: 校验签名并整理附件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          apk="artifacts/WeType_Swipe_LSPosed_v1.11.3-test2.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          cp TEST_NOTES_v1.11.3-test2.md artifacts/
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          verification="$($apksigner verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$verification"
+          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          case "$normalized" in
+            *"$EXPECTED_CERT_SHA256"*) ;;
+            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
+          esac
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path.cwd()
+          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.3-test2_source.zip"
+          prefix = Path("WeType-Swipe-v1.11.3-test2")
+          excluded_dirs = {".git", ".gradle", ".idea", "build", "artifacts", "release", "source-package"}
+          excluded_names = {"signing.jks", "local.properties"}
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for path in sorted(root.rglob("*")):
+                  relative = path.relative_to(root)
+                  if any(part in excluded_dirs for part in relative.parts):
+                      continue
+                  if path.name in excluded_names or not path.is_file():
+                      continue
+                  archive.write(path, (prefix / relative).as_posix())
+          PY
+
+          (cd artifacts && sha256sum \
+            WeType_Swipe_LSPosed_v1.11.3-test2.apk \
+            WeType_Swipe_LSPosed_v1.11.3-test2_source.zip \
+            > WeType_Swipe_v1.11.3-test2_SHA256SUMS.txt)
+
+      - name: 上传测试包
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeType-Swipe-v1.11.3-test2-signed
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 回报构建结果
+        if: success()
+        shell: bash
+        run: |
+          gh pr comment 34 --body "v1.11.3-test2 已构建完成。workflow_run_id=${GITHUB_RUN_ID}，artifact=WeType-Swipe-v1.11.3-test2-signed。等待真机验证手写找字界面。"
+
+      - name: 回报构建失败
+        if: failure()
+        shell: bash
+        run: |
+          gh pr comment 34 --body "v1.11.3-test2 构建失败。workflow_run_id=${GITHUB_RUN_ID}，请检查 Actions 日志。"
+
+      - name: 清理签名文件
+        if: always()
+        shell: bash
+        run: rm -f "$SIGNING_STORE_FILE"
