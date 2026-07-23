@@ -174,7 +174,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.2 · 兼容微信输入法 3.5.2", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.3 · 修复原生面板与符号页标签", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);

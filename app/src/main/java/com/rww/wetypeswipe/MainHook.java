@@ -119,7 +119,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.2 entered target package; WeType 3.5.0/3.5.2 adapters enabled");
+            logInfo("v1.11.3 entered target package; native-panel structural adapter enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -447,6 +447,12 @@ public final class MainHook extends XposedModule {
             return chain.proceed();
         }
 
+        if (isHandwritingContext(view)) {
+            tracker.clear(view);
+            view.post(() -> hideKeyboardHint(0L));
+            return chain.proceed();
+        }
+
         ensureKeyboardLabelDrawHook(view.getClass(), view);
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !targetCacheLoaded) {
             ensureConfigSync(view.getContext());
@@ -530,6 +536,10 @@ public final class MainHook extends XposedModule {
         View keyboard = nativeSingleKeyParent(model);
         Rect drawRect = nativeSingleKeyDrawRect(model);
         if (keyboard == null || drawRect == null || drawRect.isEmpty()) return;
+        if (isHandwritingContext(keyboard)) {
+            nativeSingleKeyLabelCache.remove(model);
+            return;
+        }
 
         View previous = nativeSingleKeyActiveKeyboardRef.get();
         if (previous != keyboard) {
@@ -544,30 +554,30 @@ public final class MainHook extends XposedModule {
         if (currentEditorPassword) return;
         Config displayConfig = cachedConfig;
         if (displayConfig == null || !displayConfig.showKeyLabels) return;
-        String label = nativeSingleKeyLabelCache.get(model);
-        if (label == null) {
-            Config config = cachedConfig;
-            if (config == null || !config.hasAnyBinding() || !config.showKeyLabels) return;
-            String id;
-            try { id = String.valueOf(model); }
-            catch (Throwable ignored) { id = null; }
-            String key = keyFromNativeLayoutId(id);
-            if (key == null) {
-                Object value = invoke(model, "K");
-                key = keyFromNativeLayoutId(value == null ? null : String.valueOf(value));
-            }
-            if (key == null) label = "";
-            else {
-                char value = key.charAt(0);
-                boolean t9 = value >= '1' && value <= '9';
-                int action = config.actionFor(key, t9);
-                label = action == Config.ACTION_NONE || action == Config.ACTION_DISABLE
-                        ? "" : config.labelFor(key, t9, action);
-            }
+        Config config = cachedConfig;
+        if (config == null || !config.hasAnyBinding() || !config.showKeyLabels) return;
+
+        // Native key models are reused when switching to number/symbol pages. Their layout id
+        // still points at the original QWERTY position, so using that id alone leaks labels onto
+        // symbol keys. Resolve the currently visible key text and include it in the cache value.
+        KeyInfo visibleKey = visibleKeyFromButton(model);
+        if (visibleKey == null) {
+            nativeSingleKeyLabelCache.remove(model);
+            return;
+        }
+        String identity = (visibleKey.t9 ? "t9:" : "qwerty:") + visibleKey.key + '\u0000';
+        String cached = nativeSingleKeyLabelCache.get(model);
+        String label;
+        if (cached == null || !cached.startsWith(identity)) {
+            int action = config.actionFor(visibleKey.key, visibleKey.t9);
+            label = action == Config.ACTION_NONE || action == Config.ACTION_DISABLE
+                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, action);
             if (nativeSingleKeyLabelCache.size() >= NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT) {
                 nativeSingleKeyLabelCache.clear();
             }
-            nativeSingleKeyLabelCache.put(model, label);
+            nativeSingleKeyLabelCache.put(model, identity + label);
+        } else {
+            label = cached.substring(identity.length());
         }
         if (label.isEmpty()) return;
 
@@ -665,6 +675,7 @@ public final class MainHook extends XposedModule {
 
     private void drawKeyboardFunctionLabels(View keyboard, Canvas canvas) {
         if (keyboard == null || canvas == null || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
+        if (isHandwritingContext(keyboard)) return;
         Config config = cachedConfig;
         if (config == null || !config.hasAnyBinding()) return;
         try {
@@ -1284,6 +1295,16 @@ public final class MainHook extends XposedModule {
         return null;
     }
 
+    private static boolean isHandwritingContext(View keyboard) {
+        View current = keyboard;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            if (KeyboardModeGuard.isHandwritingClassName(current.getClass().getName())) return true;
+            Object parent = current.getParent();
+            current = parent instanceof View ? (View) parent : null;
+        }
+        return false;
+    }
+
     private Object interceptKeyboardTouch(XposedInterface.Chain chain, View keyboard, MotionEvent event) throws Throwable {
         final int maskedAction = event.getActionMasked();
         if (event.getPointerCount() != 1) {
@@ -1571,6 +1592,19 @@ public final class MainHook extends XposedModule {
         if (button == null) button = invoke(keyboard, "v1", event, false);
         if (button == null) button = invoke(keyboard, "v1", event, true);
         return keyFromButton(keyboard, button);
+    }
+
+    private KeyInfo visibleKeyFromButton(Object button) {
+        if (button == null) return null;
+        Object keyData = invoke(button, "O");
+        if (keyData == null) return null;
+        Object main = invoke(keyData, "getMainText");
+        Object secondary = firstNonNull(
+                invoke(keyData, "getSubText"),
+                invoke(keyData, "getSecondaryText"),
+                invoke(keyData, "getHintText"),
+                invoke(keyData, "getAssistText"));
+        return keyFromTexts(main, secondary);
     }
 
     private KeyInfo keyFromButton(Object keyboard, Object button) {
@@ -2017,20 +2051,11 @@ public final class MainHook extends XposedModule {
         try {
             if (view.hasOnClickListeners() || view.isClickable()) {
                 View.OnClickListener listener = readOnClickListener(view);
-                String listenerClass = listener == null ? "" : listener.getClass().getName();
-                boolean supportedListener = "com.tencent.wetype.plugin.hld.utils.h3".equals(listenerClass)
-                        || "com.tencent.wetype.plugin.hld.utils.o1".equals(listenerClass);
-                if (listener != null && supportedListener) {
-                    Object callback = readNamedField(listener, "c");
-                    String callbackClass = callback == null ? "" : callback.getClass().getName();
-                    boolean supportedCallback = "com.tencent.wetype.plugin.hld.toolbar.a0$b".equals(callbackClass)
-                            || "com.tencent.wetype.plugin.hld.toolbar.A$b".equals(callbackClass);
-                    if (callback != null && supportedCallback
-                            && readNamedField(callback, "this$0") != null) {
-                        logInfo("toolbar carrier matched listener=" + listenerClass
-                                + " callback=" + callbackClass);
-                        return new Object[]{view, listener, callback};
-                    }
+                Object callback = findToolbarCallback(listener);
+                if (callback != null) {
+                    logInfo("toolbar carrier matched listener=" + listener.getClass().getName()
+                            + " callback=" + callback.getClass().getName());
+                    return new Object[]{view, listener, callback};
                 }
             }
         } catch (Throwable ignored) {}
@@ -2042,6 +2067,49 @@ public final class MainHook extends XposedModule {
             }
         }
         return null;
+    }
+
+    private Object findToolbarCallback(Object listener) {
+        if (listener == null) return null;
+
+        // Fast path for known WeType builds: 3.5.0 uses h3 and the uploaded 3.5.2
+        // build uses p1. Both carry the Kotlin callback in field c.
+        Object named = readNamedField(listener, "c");
+        if (isToolbarCallbackCarrier(named)) return named;
+
+        // Obfuscated wrapper class and field names can change between builds with the same
+        // version name. Fall back to structure instead of another single class-name allowlist.
+        for (Class<?> type = listener.getClass(); type != null; type = type.getSuperclass()) {
+            Field[] fields;
+            try { fields = type.getDeclaredFields(); }
+            catch (Throwable ignored) { continue; }
+            for (Field field : fields) {
+                try {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) continue;
+                    field.setAccessible(true);
+                    Object candidate = field.get(listener);
+                    if (isToolbarCallbackCarrier(candidate)) return candidate;
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean isToolbarCallbackCarrier(Object callback) {
+        if (callback == null) return false;
+        Object holder = readNamedField(callback, "this$0");
+        if (holder == null) return false;
+        String holderClass = holder.getClass().getName();
+        if (!holderClass.startsWith("com.tencent.wetype.plugin.hld.toolbar.")) return false;
+
+        Field function = findNamedField(holder.getClass(), "f");
+        Field category = findNamedField(holder.getClass(), "g");
+        Field group = findNamedField(holder.getClass(), "h");
+        return function != null && function.getType() == int.class
+                && category != null
+                && group != null && group.getType() == int.class
+                && findCompatibleInvoke(callback.getClass()) != null;
     }
 
     private static Field findNamedField(Class<?> type, String name) {
