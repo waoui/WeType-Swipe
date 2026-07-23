@@ -57,13 +57,15 @@ public final class MainActivity extends Activity {
             Config.ACTION_SELECT_TO_PARAGRAPH_START,
             Config.ACTION_SELECT_TO_PARAGRAPH_END,
             Config.ACTION_OPEN_CLIPBOARD,
-            Config.ACTION_OPEN_QUICK_PHRASE
+            Config.ACTION_OPEN_QUICK_PHRASE,
+            Config.ACTION_UNDO,
+            Config.ACTION_REDO
     };
 
     private static final String[] QWERTY_LABELS = {
             "全选", "剪切", "复制", "粘贴", "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
-            "剪贴板", "快捷发送"
+            "剪贴板", "快捷发送", "撤销", "重做"
     };
 
     private static final String[] QWERTY_ROWS = {
@@ -174,7 +176,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.3 · 修复原生面板与符号页标签", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.4 · 新增撤销与重做", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -704,6 +706,8 @@ public final class MainActivity extends Activity {
         qwertyKeys[9] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));
         qwertyKeys[10] = normalizedKey(prefs.getString(Config.KEY_OPEN_CLIPBOARD, ""));
         qwertyKeys[11] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));
+        qwertyKeys[12] = normalizedKey(prefs.getString(Config.KEY_UNDO, ""));
+        qwertyKeys[13] = normalizedKey(prefs.getString(Config.KEY_REDO, ""));
         disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
         for (char key = 'a'; key <= 'z'; key++) {
             qwertyCustomLabels[key - 'a'] = Config.normalizeLabelValue(
@@ -747,6 +751,8 @@ public final class MainActivity extends Activity {
                 .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[9])
                 .putString(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[10])
                 .putString(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11])
+                .putString(Config.KEY_UNDO, qwertyKeys[12])
+                .putString(Config.KEY_REDO, qwertyKeys[13])
                 .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
                 .remove("text_start")
                 .remove("text_end")
@@ -788,6 +794,8 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[9]);
         changed.putExtra(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[10]);
         changed.putExtra(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11]);
+        changed.putExtra(Config.KEY_UNDO, qwertyKeys[12]);
+        changed.putExtra(Config.KEY_REDO, qwertyKeys[13]);
         changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
@@ -879,6 +887,8 @@ public final class MainActivity extends Activity {
             case Config.ACTION_SELECT_TO_PARAGRAPH_END: return "选段尾";
             case Config.ACTION_OPEN_CLIPBOARD: return "剪贴板";
             case Config.ACTION_OPEN_QUICK_PHRASE: return "快捷语";
+            case Config.ACTION_UNDO: return "撤销";
+            case Config.ACTION_REDO: return "重做";
             default: return "—";
         }
     }

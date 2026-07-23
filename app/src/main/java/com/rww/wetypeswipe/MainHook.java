@@ -119,7 +119,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.3 entered target package; native-panel structural adapter enabled");
+            logInfo("v1.11.4 entered target package; undo/redo actions enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -300,6 +300,8 @@ public final class MainHook extends XposedModule {
             config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);
             config.openClipboard = intent.getStringExtra(Config.KEY_OPEN_CLIPBOARD);
             config.openQuickPhrase = intent.getStringExtra(Config.KEY_OPEN_QUICK_PHRASE);
+            config.undo = intent.getStringExtra(Config.KEY_UNDO);
+            config.redo = intent.getStringExtra(Config.KEY_REDO);
             config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);
             if (config.selectAll == null) config.selectAll = "z";
             if (config.cut == null) config.cut = "x";
@@ -313,6 +315,8 @@ public final class MainHook extends XposedModule {
             if (config.selectToParagraphEnd == null) config.selectToParagraphEnd = "";
             if (config.openClipboard == null) config.openClipboard = "";
             if (config.openQuickPhrase == null) config.openQuickPhrase = "";
+            if (config.undo == null) config.undo = "";
+            if (config.redo == null) config.redo = "";
             if (config.disabledKeys == null) config.disabledKeys = "";
             config.thresholdDp = clamp(intent.getIntExtra(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(intent.getIntExtra(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -354,6 +358,8 @@ public final class MainHook extends XposedModule {
                     .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, config.selectToParagraphEnd)
                     .putString(Config.KEY_OPEN_CLIPBOARD, config.openClipboard)
                     .putString(Config.KEY_OPEN_QUICK_PHRASE, config.openQuickPhrase)
+                    .putString(Config.KEY_UNDO, config.undo)
+                    .putString(Config.KEY_REDO, config.redo)
                     .putString(Config.KEY_DISABLED_KEYS, config.disabledKeys)
                     .putInt(Config.KEY_THRESHOLD, config.thresholdDp)
                     .putInt(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp)
@@ -397,6 +403,8 @@ public final class MainHook extends XposedModule {
             config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");
             config.openClipboard = prefs.getString(Config.KEY_OPEN_CLIPBOARD, "");
             config.openQuickPhrase = prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, "");
+            config.undo = prefs.getString(Config.KEY_UNDO, "");
+            config.redo = prefs.getString(Config.KEY_REDO, "");
             config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");
             config.thresholdDp = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -1837,6 +1845,8 @@ public final class MainHook extends XposedModule {
                 success = performParagraphAction(connection, action);
             } else if (isCompoundAction(action)) {
                 success = performCompoundAction(ime, keyboard, connection, action);
+            } else if (isEditorHistoryAction(action)) {
+                success = performEditorHistoryAction(ime, connection, action);
             } else {
                 success = performMenuAction(ime, connection, Config.menuIdFor(action));
             }
@@ -1851,6 +1861,16 @@ public final class MainHook extends XposedModule {
 
     private static boolean isCompoundAction(int action) {
         return action == Config.ACTION_COPY_ALL || action == Config.ACTION_CUT_ALL;
+    }
+
+    private static boolean isEditorHistoryAction(int action) {
+        return action == Config.ACTION_UNDO || action == Config.ACTION_REDO;
+    }
+
+    private boolean performEditorHistoryAction(InputMethodService ime,
+                                               InputConnection connection, int action) {
+        try { connection.finishComposingText(); } catch (Throwable ignored) {}
+        return performMenuAction(ime, connection, Config.menuIdFor(action));
     }
 
     private boolean performCompoundAction(InputMethodService ime, View keyboard,
