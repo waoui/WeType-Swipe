@@ -119,7 +119,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.4-test1 entered target package; undo/redo actions enabled");
+            logInfo("v1.11.4 entered target package; undo/redo actions enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }

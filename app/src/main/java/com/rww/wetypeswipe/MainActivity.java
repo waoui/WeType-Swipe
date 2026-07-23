@@ -176,7 +176,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.4-test1 · 新增撤销与重做", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.4 · 新增撤销与重做", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
