@@ -45,151 +45,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root = Path.cwd()
-          hook = root / "app/src/main/java/com/rww/wetypeswipe/MainHook.java"
-          text = hook.read_text(encoding="utf-8")
-
-          replacements = [
-              (
-                  '''        ensureKeyboardLabelDrawHook(view.getClass(), view);
-          if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !targetCacheLoaded) {''',
-                  '''        if (isHandwritingContext(view)) {
-              tracker.clear(view);
-              view.post(() -> hideKeyboardHint(0L));
-              return chain.proceed();
-          }
-
-          ensureKeyboardLabelDrawHook(view.getClass(), view);
-          if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !targetCacheLoaded) {'''
-              ),
-              (
-                  '''        if (keyboard == null || drawRect == null || drawRect.isEmpty()) return;
-
-          View previous = nativeSingleKeyActiveKeyboardRef.get();''',
-                  '''        if (keyboard == null || drawRect == null || drawRect.isEmpty()) return;
-          if (isHandwritingContext(keyboard)) {
-              nativeSingleKeyLabelCache.remove(model);
-              return;
-          }
-
-          View previous = nativeSingleKeyActiveKeyboardRef.get();'''
-              ),
-              (
-                  '''    private void drawKeyboardFunctionLabels(View keyboard, Canvas canvas) {
-          if (keyboard == null || canvas == null || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
-          Config config = cachedConfig;''',
-                  '''    private void drawKeyboardFunctionLabels(View keyboard, Canvas canvas) {
-          if (keyboard == null || canvas == null || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
-          if (isHandwritingContext(keyboard)) return;
-          Config config = cachedConfig;'''
-              ),
-              (
-                  '''    private static Class<?> findKeyboardBase(Class<?> type) {
-          for (int i = 0; type != null && i < 12; i++, type = type.getSuperclass()) {
-              if (KEYBOARD_BASE.equals(type.getName())) return type;
-          }
-          return null;
-      }
-
-      private Object interceptKeyboardTouch''',
-                  '''    private static Class<?> findKeyboardBase(Class<?> type) {
-          for (int i = 0; type != null && i < 12; i++, type = type.getSuperclass()) {
-              if (KEYBOARD_BASE.equals(type.getName())) return type;
-          }
-          return null;
-      }
-
-      private static boolean isHandwritingContext(View keyboard) {
-          View current = keyboard;
-          for (int depth = 0; current != null && depth < 16; depth++) {
-              if (KeyboardModeGuard.isHandwritingClassName(current.getClass().getName())) return true;
-              Object parent = current.getParent();
-              current = parent instanceof View ? (View) parent : null;
-          }
-          return false;
-      }
-
-      private Object interceptKeyboardTouch'''
-              ),
-          ]
-
-          for old, new in replacements:
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"MainHook replacement expected 1 match, found {count}: {old[:80]!r}")
-              text = text.replace(old, new, 1)
-          hook.write_text(text, encoding="utf-8")
-
-          guard = root / "app/src/main/java/com/rww/wetypeswipe/KeyboardModeGuard.java"
-          guard.write_text('''package com.rww.wetypeswipe;
-
-          import java.util.Locale;
-
-          final class KeyboardModeGuard {
-              private KeyboardModeGuard() {}
-
-              static boolean isHandwritingClassName(String className) {
-                  if (className == null || className.isEmpty()) return false;
-                  String normalized = className.toLowerCase(Locale.ROOT);
-                  return normalized.contains("handwrite") || normalized.contains("hand_write");
-              }
-          }
-          '''.replace("          ", ""), encoding="utf-8")
-
-          test = root / "app/src/test/java/com/rww/wetypeswipe/KeyboardModeGuardTest.java"
-          test.write_text('''package com.rww.wetypeswipe;
-
-          import static org.junit.Assert.assertFalse;
-          import static org.junit.Assert.assertTrue;
-
-          import org.junit.Test;
-
-          public final class KeyboardModeGuardTest {
-              @Test public void identifiesKnownHandwritingKeyboards() {
-                  assertTrue(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.keyboard.selfdraw.HandWriteKeyboard"));
-                  assertTrue(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.keyboard.selfdraw.HandWriteFullScreenKeyboard"));
-                  assertTrue(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.keyboard.selfdraw.S27HandwriteT9Keyboard"));
-                  assertTrue(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.keyboard.selfdraw.S28HandwriteT26Keyboard"));
-                  assertTrue(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.handwrite.ImeHandWriteKeyboardView"));
-              }
-
-              @Test public void keepsNormalKeyboardsEnabled() {
-                  assertFalse(KeyboardModeGuard.isHandwritingClassName(null));
-                  assertFalse(KeyboardModeGuard.isHandwritingClassName(""));
-                  assertFalse(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.keyboard.selfdraw.QwertyKeyboard"));
-                  assertFalse(KeyboardModeGuard.isHandwritingClassName(
-                          "com.tencent.wetype.plugin.hld.keyboard.selfdraw.S27T9Keyboard"));
-              }
-          }
-          '''.replace("          ", ""), encoding="utf-8")
-
-          docs = [
-              (root / "CHANGELOG.md",
-               "- 修复数字／符号页面错误显示 QWERTY 下滑功能标签\n",
-               "- 修复数字／符号页面错误显示 QWERTY 下滑功能标签\n- 手写找字及其他手写键盘界面不再显示或触发下滑快捷动作\n"),
-              (root / "README.md",
-               "- 修复数字／符号页面错误显示 QWERTY 下滑功能标签。\n",
-               "- 修复数字／符号页面错误显示 QWERTY 下滑功能标签。\n- 手写找字及其他手写键盘界面不显示标签，也不响应下滑快捷动作。\n"),
-              (root / "RELEASE_NOTES_v1.11.3.md",
-               "- 修复数字／符号页面错误显示“剪贴、快捷、选前、选后、段首”等 QWERTY 功能标签。\n",
-               "- 修复数字／符号页面错误显示“剪贴、快捷、选前、选后、段首”等 QWERTY 功能标签。\n- 手写找字及其他手写键盘界面不再显示标签或执行下滑动作，避免干扰手写操作。\n"),
-          ]
-          for path, old, new in docs:
-              value = path.read_text(encoding="utf-8")
-              if value.count(old) != 1:
-                  raise SystemExit(f"Documentation marker mismatch: {path}")
-              path.write_text(value.replace(old, new, 1), encoding="utf-8")
-          PY
-
+          python3 tools/fix_handwrite_test2.py
+          rm -f tools/fix_handwrite_test2.py
           rm -f .github/workflows/fix-v1.11.3-handwrite-test2.yml
 
       - name: 单元测试、Lint 与调试构建
@@ -212,10 +69,8 @@ jobs:
         run: |
           set -euo pipefail
           sed -i 's/^VERSION_NAME=1\.11\.3$/VERSION_NAME=1.11.3-test2/' gradle.properties
-          sed -i 's/v1\.11\.3 · 修复原生面板与符号页标签/v1.11.3-test2 · 增加手写键盘隔离/' \
-            app/src/main/java/com/rww/wetypeswipe/MainActivity.java
-          sed -i 's/v1\.11\.3 entered target package/v1.11.3-test2 entered target package/' \
-            app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          sed -i 's/v1\.11\.3 · 修复原生面板与符号页标签/v1.11.3-test2 · 增加手写键盘隔离/' app/src/main/java/com/rww/wetypeswipe/MainActivity.java
+          sed -i 's/v1\.11\.3 entered target package/v1.11.3-test2 entered target package/' app/src/main/java/com/rww/wetypeswipe/MainHook.java
           cat > TEST_NOTES_v1.11.3-test2.md <<'EOF'
           # 微信输入法下滑快捷键 v1.11.3-test2
 
@@ -227,7 +82,7 @@ jobs:
 
           ## 真机验收
 
-          1. 进入手写找字界面，确认“剪贴、快捷、段首、段尾、全选、全剪切、全复制、粘贴、选前、选后”等标签全部消失。
+          1. 进入手写找字界面，确认所有下滑功能标签消失。
           2. 在原标签所在区域下滑，确认不会执行任何模块动作。
           3. 切回 26 键和九宫格，确认已绑定标签重新显示且下滑动作正常。
           4. 再次验证原生剪贴板和快捷发送／常用语。
@@ -257,7 +112,6 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts
           apk="artifacts/WeType_Swipe_LSPosed_v1.11.3-test2.apk"
-          source="artifacts/WeType_Swipe_LSPosed_v1.11.3-test2_source.zip"
           cp app/build/outputs/apk/release/app-release.apk "$apk"
           cp TEST_NOTES_v1.11.3-test2.md artifacts/
 
