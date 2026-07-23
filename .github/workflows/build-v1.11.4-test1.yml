@@ -1,0 +1,126 @@
+name: 构建 v1.11.4-test1 撤销重做测试包
+
+on:
+  push:
+    branches:
+      - codex/undo-redo-v1.11.4-test1
+    paths:
+      - ".github/workflows/build-v1.11.4-test1.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-v1.11.4-test1
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
+
+    steps:
+      - name: 检出功能分支
+        uses: actions/checkout@v4
+        with:
+          ref: codex/undo-redo-v1.11.4-test1
+          fetch-depth: 0
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 应用撤销与重做补丁
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/patch_undo_redo_test1.py
+          rm -f tools/patch_undo_redo_test1.py
+          rm -f .github/workflows/build-v1.11.4-test1.yml
+
+      - name: 单元测试、Lint 与调试构建
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintDebug assembleDebug
+
+      - name: 提交测试版源码
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "新增撤销与重做下滑动作"
+          git push origin HEAD:codex/undo-redo-v1.11.4-test1
+
+      - name: 恢复永久签名证书
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_BASE64"
+          test -n "$SIGNING_STORE_PASSWORD"
+          test -n "$SIGNING_KEY_ALIAS"
+          test -n "$SIGNING_KEY_PASSWORD"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$SIGNING_STORE_FILE"
+
+      - name: Release 构建
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace lintRelease assembleRelease
+
+      - name: 校验签名并整理附件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          apk="artifacts/WeType_Swipe_LSPosed_v1.11.4-test1.apk"
+          source="artifacts/WeType_Swipe_LSPosed_v1.11.4-test1_source.zip"
+          sums="artifacts/WeType_Swipe_v1.11.4-test1_SHA256SUMS.txt"
+
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          cp TEST_NOTES_v1.11.4-test1.md artifacts/
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          verification="$($apksigner verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$verification"
+          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          case "$normalized" in
+            *"$EXPECTED_CERT_SHA256"*) ;;
+            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
+          esac
+
+          git archive --format=zip --prefix="WeType-Swipe-v1.11.4-test1/" HEAD -o "$source"
+          (
+            cd artifacts
+            sha256sum \
+              WeType_Swipe_LSPosed_v1.11.4-test1.apk \
+              WeType_Swipe_LSPosed_v1.11.4-test1_source.zip \
+              > WeType_Swipe_v1.11.4-test1_SHA256SUMS.txt
+          )
+          test -s "$sums"
+
+      - name: 上传测试附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeType-Swipe-v1.11.4-test1-signed
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 清理签名文件
+        if: always()
+        shell: bash
+        run: rm -f "$SIGNING_STORE_FILE"
