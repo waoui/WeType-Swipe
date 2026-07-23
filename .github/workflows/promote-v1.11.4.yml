@@ -1,0 +1,171 @@
+name: 固化 v1.11.4 正式源码
+
+on:
+  push:
+    branches:
+      - codex/release-v1.11.4
+    paths:
+      - ".github/workflows/promote-v1.11.4.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-v1.11.4
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出发布分支
+        uses: actions/checkout@v4
+        with:
+          ref: codex/release-v1.11.4
+          fetch-depth: 0
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 固化正式版本和发布文档
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.cwd()
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 match, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              root / "gradle.properties",
+              "VERSION_NAME=1.11.4-test1",
+              "VERSION_NAME=1.11.4",
+              "gradle version",
+          )
+          replace_once(
+              root / "app/src/main/java/com/rww/wetypeswipe/MainActivity.java",
+              "v1.11.4-test1 · 新增撤销与重做",
+              "v1.11.4 · 新增撤销与重做",
+              "activity header",
+          )
+          replace_once(
+              root / "app/src/main/java/com/rww/wetypeswipe/MainHook.java",
+              'logInfo("v1.11.4-test1 entered target package; undo/redo actions enabled");',
+              'logInfo("v1.11.4 entered target package; undo/redo actions enabled");',
+              "hook version log",
+          )
+
+          readme = root / "README.md"
+          text = readme.read_text(encoding="utf-8")
+          text = text.replace("当前稳定版本：**v1.11.3**", "当前稳定版本：**v1.11.4**", 1)
+          text = text.replace(
+              "- 打开微信输入法原生快捷发送／常用语\n- 禁用指定按键的下滑动作",
+              "- 打开微信输入法原生快捷发送／常用语\n- 撤销、重做\n- 禁用指定按键的下滑动作",
+              1,
+          )
+          start = text.index("## v1.11.3 更新内容")
+          end = text.index("\n## 兼容性", start)
+          section = """## v1.11.4 更新内容
+
+          - 新增“撤销”和“重做”下滑动作，26 键与九宫格均可绑定。
+          - 使用 Android 标准编辑器撤销／重做指令，不保存输入内容，也不维护私有撤销栈。
+          - 触发前结束当前输入法组词状态，再由目标 App 的输入框执行撤销或重做。
+          - 中文输入可能按“中文 → 拼音 → 空白”的顺序撤销，这是目标编辑器对组词和上屏记录为两个步骤的正常表现。
+          - 保持数字、符号、手写键盘和密码输入框的隔离逻辑不变。
+          - 保持 v1.11.3 的原生剪贴板、快捷发送和标签兼容修复不变。
+
+          完整变更请查看 [v1.11.4 Release](https://github.com/waoui/WeType-Swipe/releases/tag/v1.11.4) 和 [更新记录](CHANGELOG.md)。
+          """
+          section = "\n".join(line[10:] if line.startswith("          ") else line for line in section.splitlines()) + "\n"
+          readme.write_text(text[:start] + section + text[end:], encoding="utf-8")
+
+          changelog = root / "CHANGELOG.md"
+          text = changelog.read_text(encoding="utf-8")
+          prefix = "# 更新记录\n"
+          if not text.startswith(prefix):
+              raise SystemExit("CHANGELOG header mismatch")
+          entry = """# 更新记录
+
+          ## v1.11.4
+
+          - 新增“撤销”和“重做”下滑动作，支持 26 键与九宫格绑定
+          - 动作编号追加为 14、15，不改变既有动作编号和用户配置
+          - 使用 Android 标准编辑器撤销／重做指令，不保存用户输入内容
+          - 触发前结束当前组词状态，由目标 App 决定撤销粒度和历史顺序
+          - 保持数字、符号、手写键盘及密码输入框隔离逻辑不变
+          - 保持 v1.11.3 原生面板、标签和微信输入法 3.5.2 兼容修复不变
+          """
+          entry = "\n".join(line[10:] if line.startswith("          ") else line for line in entry.splitlines()) + "\n"
+          changelog.write_text(entry + text[len(prefix):], encoding="utf-8")
+
+          notes = """# 微信输入法下滑快捷键 v1.11.4
+
+          本版本新增可绑定的“撤销”和“重做”下滑动作。
+
+          ## 新增功能
+
+          - 26 键和九宫格均可绑定“撤销”和“重做”。
+          - 使用 Android 标准编辑器菜单指令执行撤销与重做。
+          - 触发前结束当前输入法组词状态，再交由目标 App 的输入框处理。
+          - 不保存输入内容，不建立模块私有撤销历史。
+
+          ## 行为说明
+
+          撤销粒度由目标 App 的编辑器决定。在拼音直接显示于输入框的模式下，中文上屏可能被记录为“拼音输入”和“拼音替换为中文”两个步骤，因此可能出现：
+
+          `中文 → 拼音 → 空白 → 拼音 → 中文`
+
+          这属于正常撤销／重做顺序。不同 App、网页富文本、小程序和自绘编辑器的支持情况可能不同。
+
+          ## 兼容性
+
+          - Android 8.0 及以上
+          - LSPosed
+          - 微信输入法 3.5.0、3.5.2
+          - 本次真机验收环境：Android 16、微信输入法 3.5.2
+
+          ## 发布验证
+
+          - 26 键与九宫格绑定、标签和配置同步验证通过
+          - 微信聊天输入框普通输入、中文上屏、删除、粘贴和剪切后的撤销／重做验证通过
+          - 无历史记录时不崩溃、不误删
+          - 数字、符号、手写键盘和密码输入框隔离验证通过
+          - 原生剪贴板、快捷发送／常用语及既有动作未发现回归
+          - 单元测试、Android Lint、Debug/Release 构建和永久签名校验通过
+          """
+          notes = "\n".join(line[10:] if line.startswith("          ") else line for line in notes.splitlines()) + "\n"
+          (root / "RELEASE_NOTES_v1.11.4.md").write_text(notes, encoding="utf-8")
+          PY
+
+          rm -f TEST_NOTES_v1.11.4-test1.md
+          rm -f .github/workflows/promote-v1.11.4.yml
+
+      - name: 单元测试、Lint 与调试构建
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintDebug assembleDebug
+
+      - name: 提交正式源码
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "发布 v1.11.4：新增撤销与重做"
+          git push origin HEAD:codex/release-v1.11.4
