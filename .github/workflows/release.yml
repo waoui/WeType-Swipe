@@ -9,10 +9,13 @@ on:
         type: string
   issues:
     types: [opened]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ github.repository }}
@@ -25,7 +28,12 @@ jobs:
       (github.event_name == 'issues' &&
        github.event.issue.user.login == github.repository_owner &&
        startsWith(github.event.issue.title, 'Publish v') &&
-       endsWith(github.event.issue.title, ' final'))
+       endsWith(github.event.issue.title, ' final')) ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.user.login == github.repository_owner &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       startsWith(github.event.pull_request.title, 'Publish v') &&
+       endsWith(github.event.pull_request.title, ' final'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -57,12 +65,20 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
           TRIGGER_ISSUE_TITLE: ${{ github.event.issue.title }}
+          TRIGGER_PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
             title="$TRIGGER_ISSUE_TITLE"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
+            title="$TRIGGER_PR_TITLE"
+          else
+            title=""
+          fi
+
+          if [[ -n "$title" ]]; then
             if [[ ! "$title" =~ ^Publish\ v([0-9]+\.[0-9]+\.[0-9]+)\ final$ ]]; then
-              echo "Invalid release issue title: $title" >&2
+              echo "Invalid release trigger title: $title" >&2
               exit 1
             fi
             version="${BASH_REMATCH[1]}"
@@ -161,14 +177,21 @@ jobs:
               --latest
           fi
 
-      - name: 关闭发布触发 Issue
-        if: success() && github.event_name == 'issues'
+      - name: 关闭发布触发入口
+        if: success() && github.event_name != 'workflow_dispatch'
         shell: bash
         env:
           TRIGGER_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TRIGGER_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          gh issue close "$TRIGGER_ISSUE_NUMBER" \
-            --comment "v${VERSION} 已完成构建、签名校验和正式发布。"
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "issues" ]]; then
+            gh issue close "$TRIGGER_ISSUE_NUMBER" \
+              --comment "v${VERSION} 已完成构建、签名校验和正式发布。"
+          elif [[ "$GITHUB_EVENT_NAME" == "pull_request_target" ]]; then
+            gh pr close "$TRIGGER_PR_NUMBER" \
+              --comment "v${VERSION} 已完成构建、签名校验和正式发布；该 PR 仅用于安全触发发布，未合并。"
+          fi
 
       - name: 清理签名文件
         if: always()
