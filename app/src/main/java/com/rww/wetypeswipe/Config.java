@@ -19,6 +19,10 @@ final class Config {
     static final String KEY_PARAGRAPH_END = "paragraph_end";
     static final String KEY_SELECT_TO_PARAGRAPH_START = "select_to_paragraph_start";
     static final String KEY_SELECT_TO_PARAGRAPH_END = "select_to_paragraph_end";
+    static final String KEY_DOCUMENT_START = "document_start";
+    static final String KEY_DOCUMENT_END = "document_end";
+    static final String KEY_SELECT_TO_DOCUMENT_START = "select_to_document_start";
+    static final String KEY_SELECT_TO_DOCUMENT_END = "select_to_document_end";
     static final String KEY_OPEN_CLIPBOARD = "open_clipboard";
     static final String KEY_OPEN_QUICK_PHRASE = "open_quick_phrase";
     static final String KEY_UNDO = "undo";
@@ -61,11 +65,16 @@ final class Config {
     static final int ACTION_CUT_ALL = 13;
     static final int ACTION_UNDO = 14;
     static final int ACTION_REDO = 15;
+    static final int ACTION_DOCUMENT_START = 16;
+    static final int ACTION_DOCUMENT_END = 17;
+    static final int ACTION_SELECT_TO_DOCUMENT_START = 18;
+    static final int ACTION_SELECT_TO_DOCUMENT_END = 19;
 
     static final String[] ACTION_MENU_LABELS = {
             "未绑定", "全选", "剪切", "复制", "粘贴",
             "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
+            "文首", "文尾", "选至文首", "选至文尾",
             "剪贴板", "快捷发送", "撤销", "重做", "禁用下滑"
     };
 
@@ -81,6 +90,10 @@ final class Config {
             ACTION_PARAGRAPH_END,
             ACTION_SELECT_TO_PARAGRAPH_START,
             ACTION_SELECT_TO_PARAGRAPH_END,
+            ACTION_DOCUMENT_START,
+            ACTION_DOCUMENT_END,
+            ACTION_SELECT_TO_DOCUMENT_START,
+            ACTION_SELECT_TO_DOCUMENT_END,
             ACTION_OPEN_CLIPBOARD,
             ACTION_OPEN_QUICK_PHRASE,
             ACTION_UNDO,
@@ -98,6 +111,10 @@ final class Config {
     String paragraphEnd = "";
     String selectToParagraphStart = "";
     String selectToParagraphEnd = "";
+    String documentStart = "";
+    String documentEnd = "";
+    String selectToDocumentStart = "";
+    String selectToDocumentEnd = "";
     String openClipboard = "";
     String openQuickPhrase = "";
     String undo = "";
@@ -128,6 +145,10 @@ final class Config {
         bind(paragraphEnd, ACTION_PARAGRAPH_END);
         bind(selectToParagraphStart, ACTION_SELECT_TO_PARAGRAPH_START);
         bind(selectToParagraphEnd, ACTION_SELECT_TO_PARAGRAPH_END);
+        bind(documentStart, ACTION_DOCUMENT_START);
+        bind(documentEnd, ACTION_DOCUMENT_END);
+        bind(selectToDocumentStart, ACTION_SELECT_TO_DOCUMENT_START);
+        bind(selectToDocumentEnd, ACTION_SELECT_TO_DOCUMENT_END);
         bind(openClipboard, ACTION_OPEN_CLIPBOARD);
         bind(openQuickPhrase, ACTION_OPEN_QUICK_PHRASE);
         bind(undo, ACTION_UNDO);
@@ -191,7 +212,7 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_REDO
+        return action >= ACTION_NONE && action <= ACTION_SELECT_TO_DOCUMENT_END
                 ? action : ACTION_NONE;
     }
 
@@ -252,6 +273,10 @@ final class Config {
             case ACTION_PARAGRAPH_END: return "段尾";
             case ACTION_SELECT_TO_PARAGRAPH_START: return "选前";
             case ACTION_SELECT_TO_PARAGRAPH_END: return "选后";
+            case ACTION_DOCUMENT_START: return "文首";
+            case ACTION_DOCUMENT_END: return "文尾";
+            case ACTION_SELECT_TO_DOCUMENT_START: return "选文首";
+            case ACTION_SELECT_TO_DOCUMENT_END: return "选文尾";
             case ACTION_OPEN_CLIPBOARD: return "剪贴";
             case ACTION_OPEN_QUICK_PHRASE: return "快捷";
             case ACTION_UNDO: return "撤销";
@@ -311,6 +336,10 @@ final class Config {
             case ACTION_PARAGRAPH_END: return "段尾";
             case ACTION_SELECT_TO_PARAGRAPH_START: return "选至段首";
             case ACTION_SELECT_TO_PARAGRAPH_END: return "选至段尾";
+            case ACTION_DOCUMENT_START: return "文首";
+            case ACTION_DOCUMENT_END: return "文尾";
+            case ACTION_SELECT_TO_DOCUMENT_START: return "选至文首";
+            case ACTION_SELECT_TO_DOCUMENT_END: return "选至文尾";
             case ACTION_OPEN_CLIPBOARD: return "剪贴板";
             case ACTION_OPEN_QUICK_PHRASE: return "快捷发送";
             case ACTION_UNDO: return "撤销";

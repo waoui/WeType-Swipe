@@ -119,7 +119,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.4 entered target package; undo/redo actions enabled");
+            logInfo("v1.11.5 entered target package; document navigation actions enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -298,6 +298,10 @@ public final class MainHook extends XposedModule {
             config.paragraphEnd = intent.getStringExtra(Config.KEY_PARAGRAPH_END);
             config.selectToParagraphStart = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_START);
             config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);
+            config.documentStart = intent.getStringExtra(Config.KEY_DOCUMENT_START);
+            config.documentEnd = intent.getStringExtra(Config.KEY_DOCUMENT_END);
+            config.selectToDocumentStart = intent.getStringExtra(Config.KEY_SELECT_TO_DOCUMENT_START);
+            config.selectToDocumentEnd = intent.getStringExtra(Config.KEY_SELECT_TO_DOCUMENT_END);
             config.openClipboard = intent.getStringExtra(Config.KEY_OPEN_CLIPBOARD);
             config.openQuickPhrase = intent.getStringExtra(Config.KEY_OPEN_QUICK_PHRASE);
             config.undo = intent.getStringExtra(Config.KEY_UNDO);
@@ -313,6 +317,10 @@ public final class MainHook extends XposedModule {
             if (config.paragraphEnd == null) config.paragraphEnd = "";
             if (config.selectToParagraphStart == null) config.selectToParagraphStart = "";
             if (config.selectToParagraphEnd == null) config.selectToParagraphEnd = "";
+            if (config.documentStart == null) config.documentStart = "";
+            if (config.documentEnd == null) config.documentEnd = "";
+            if (config.selectToDocumentStart == null) config.selectToDocumentStart = "";
+            if (config.selectToDocumentEnd == null) config.selectToDocumentEnd = "";
             if (config.openClipboard == null) config.openClipboard = "";
             if (config.openQuickPhrase == null) config.openQuickPhrase = "";
             if (config.undo == null) config.undo = "";
@@ -356,6 +364,10 @@ public final class MainHook extends XposedModule {
                     .putString(Config.KEY_PARAGRAPH_END, config.paragraphEnd)
                     .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, config.selectToParagraphStart)
                     .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, config.selectToParagraphEnd)
+                    .putString(Config.KEY_DOCUMENT_START, config.documentStart)
+                    .putString(Config.KEY_DOCUMENT_END, config.documentEnd)
+                    .putString(Config.KEY_SELECT_TO_DOCUMENT_START, config.selectToDocumentStart)
+                    .putString(Config.KEY_SELECT_TO_DOCUMENT_END, config.selectToDocumentEnd)
                     .putString(Config.KEY_OPEN_CLIPBOARD, config.openClipboard)
                     .putString(Config.KEY_OPEN_QUICK_PHRASE, config.openQuickPhrase)
                     .putString(Config.KEY_UNDO, config.undo)
@@ -401,6 +413,10 @@ public final class MainHook extends XposedModule {
             config.paragraphEnd = prefs.getString(Config.KEY_PARAGRAPH_END, "");
             config.selectToParagraphStart = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, "");
             config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");
+            config.documentStart = prefs.getString(Config.KEY_DOCUMENT_START, "");
+            config.documentEnd = prefs.getString(Config.KEY_DOCUMENT_END, "");
+            config.selectToDocumentStart = prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_START, "");
+            config.selectToDocumentEnd = prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_END, "");
             config.openClipboard = prefs.getString(Config.KEY_OPEN_CLIPBOARD, "");
             config.openQuickPhrase = prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, "");
             config.undo = prefs.getString(Config.KEY_UNDO, "");
@@ -1841,7 +1857,9 @@ public final class MainHook extends XposedModule {
             }
 
             boolean success;
-            if (isParagraphAction(action)) {
+            if (isDocumentAction(action)) {
+                success = performDocumentAction(connection, action);
+            } else if (isParagraphAction(action)) {
                 success = performParagraphAction(connection, action);
             } else if (isCompoundAction(action)) {
                 success = performCompoundAction(ime, keyboard, connection, action);
@@ -2202,6 +2220,49 @@ public final class MainHook extends XposedModule {
             }
         }
         return null;
+    }
+
+    private static boolean isDocumentAction(int action) {
+        return action == Config.ACTION_DOCUMENT_START
+                || action == Config.ACTION_DOCUMENT_END
+                || action == Config.ACTION_SELECT_TO_DOCUMENT_START
+                || action == Config.ACTION_SELECT_TO_DOCUMENT_END;
+    }
+
+    private boolean performDocumentAction(InputConnection connection, int action) {
+        try {
+            try { connection.finishComposingText(); } catch (Throwable ignored) {}
+
+            EditorSnapshot snapshot = readEditorSnapshot(connection);
+            if (snapshot == null) return false;
+
+            int documentEnd = snapshot.right;
+            if (action == Config.ACTION_DOCUMENT_END
+                    || action == Config.ACTION_SELECT_TO_DOCUMENT_END) {
+                documentEnd = readDocumentEnd(connection);
+                if (documentEnd < snapshot.right) return false;
+            }
+
+            DocumentNavigator.Target target = DocumentNavigator.resolve(
+                    action, snapshot.left, snapshot.right, documentEnd);
+            if (target == null) return false;
+
+            boolean success = connection.setSelection(target.start, target.end);
+            if (success) {
+                currentSelectionStart = target.start;
+                currentSelectionEnd = target.end;
+            }
+            return success;
+        } catch (Throwable throwable) {
+            logError("document action failed", throwable);
+            return false;
+        }
+    }
+
+    private static int readDocumentEnd(InputConnection connection) {
+        ExtractedText extracted = getFullText(connection);
+        if (extracted == null || extracted.text == null || extracted.startOffset > 0) return -1;
+        return extracted.text.length();
     }
 
     private static boolean isParagraphAction(int action) {
