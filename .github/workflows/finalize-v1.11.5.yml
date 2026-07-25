@@ -1,25 +1,33 @@
-name: 固化 v1.11.5 正式源码
+name: 生成 v1.11.5 正式源码分支
 
 on:
-  push:
-    branches:
-      - codex/release-v1.11.5
-    paths:
-      - ".github/workflows/finalize-v1.11.5.yml"
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
-  finalize:
+  generate:
+    if: >-
+      github.event.issue.user.login == github.repository_owner &&
+      github.event.issue.title == 'Generate v1.11.5 source'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_BRANCH: codex/release-v1.11.5-source
     steps:
-      - name: 检出正式发布分支
+      - name: 检出主分支
         uses: actions/checkout@v4
         with:
-          ref: codex/release-v1.11.5
+          ref: main
           fetch-depth: 0
+
+      - name: 创建正式源码分支
+        shell: bash
+        run: git checkout -b "$SOURCE_BRANCH"
 
       - name: 应用已验收补丁并固化正式版本
         shell: bash
@@ -54,9 +62,8 @@ jobs:
               "VERSION_NAME=1.11.5",
           )
 
-          changelog = root / "CHANGELOG.md"
           replace_once(
-              changelog,
+              root / "CHANGELOG.md",
               "# 更新记录\n\n",
               """# 更新记录
 
@@ -105,8 +112,7 @@ jobs:
 """,
           )
 
-          notes = root / "RELEASE_NOTES_v1.11.5.md"
-          notes.write_text("""# 微信输入法下滑快捷键 v1.11.5
+          (root / "RELEASE_NOTES_v1.11.5.md").write_text("""# 微信输入法下滑快捷键 v1.11.5
 
 本版本新增独立的全文级导航与选择动作，解决多行文本中只能在当前段落内移动或选择的问题。
 
@@ -151,12 +157,10 @@ jobs:
           PY
 
           rm -f \
-            .github/workflows/build-document-navigation-test.yml \
             .github/workflows/finalize-v1.11.5.yml \
-            TEST_NOTES_v1.11.5-test1.md \
             tools/patch_document_navigation_test.py
 
-      - name: 提交正式源码
+      - name: 提交并推送正式源码分支
         shell: bash
         run: |
           set -euo pipefail
@@ -165,4 +169,13 @@ jobs:
           git add -A
           git diff --cached --check
           git commit -m "发布 v1.11.5：新增全文导航与跨行选择"
-          git push origin HEAD:codex/release-v1.11.5
+          git push origin HEAD:"$SOURCE_BRANCH"
+
+      - name: 关闭源码生成 Issue
+        if: success()
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue close "$ISSUE_NUMBER" \
+            --comment "v1.11.5 正式源码分支已生成：${SOURCE_BRANCH}。"
