@@ -59,13 +59,18 @@ public final class MainActivity extends Activity {
             Config.ACTION_OPEN_CLIPBOARD,
             Config.ACTION_OPEN_QUICK_PHRASE,
             Config.ACTION_UNDO,
-            Config.ACTION_REDO
+            Config.ACTION_REDO,
+            Config.ACTION_DOCUMENT_START,
+            Config.ACTION_DOCUMENT_END,
+            Config.ACTION_SELECT_TO_DOCUMENT_START,
+            Config.ACTION_SELECT_TO_DOCUMENT_END
     };
 
     private static final String[] QWERTY_LABELS = {
             "全选", "剪切", "复制", "粘贴", "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
-            "剪贴板", "快捷发送", "撤销", "重做"
+            "剪贴板", "快捷发送", "撤销", "重做",
+            "文首", "文尾", "选至文首", "选至文尾"
     };
 
     private static final String[] QWERTY_ROWS = {
@@ -176,7 +181,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.4 · 新增撤销与重做", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.5 · 新增全文导航与跨行选择", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -708,6 +713,10 @@ public final class MainActivity extends Activity {
         qwertyKeys[11] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));
         qwertyKeys[12] = normalizedKey(prefs.getString(Config.KEY_UNDO, ""));
         qwertyKeys[13] = normalizedKey(prefs.getString(Config.KEY_REDO, ""));
+        qwertyKeys[14] = normalizedKey(prefs.getString(Config.KEY_DOCUMENT_START, ""));
+        qwertyKeys[15] = normalizedKey(prefs.getString(Config.KEY_DOCUMENT_END, ""));
+        qwertyKeys[16] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_START, ""));
+        qwertyKeys[17] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_END, ""));
         disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
         for (char key = 'a'; key <= 'z'; key++) {
             qwertyCustomLabels[key - 'a'] = Config.normalizeLabelValue(
@@ -753,6 +762,10 @@ public final class MainActivity extends Activity {
                 .putString(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11])
                 .putString(Config.KEY_UNDO, qwertyKeys[12])
                 .putString(Config.KEY_REDO, qwertyKeys[13])
+                .putString(Config.KEY_DOCUMENT_START, qwertyKeys[14])
+                .putString(Config.KEY_DOCUMENT_END, qwertyKeys[15])
+                .putString(Config.KEY_SELECT_TO_DOCUMENT_START, qwertyKeys[16])
+                .putString(Config.KEY_SELECT_TO_DOCUMENT_END, qwertyKeys[17])
                 .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
                 .remove("text_start")
                 .remove("text_end")
@@ -796,6 +809,10 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11]);
         changed.putExtra(Config.KEY_UNDO, qwertyKeys[12]);
         changed.putExtra(Config.KEY_REDO, qwertyKeys[13]);
+        changed.putExtra(Config.KEY_DOCUMENT_START, qwertyKeys[14]);
+        changed.putExtra(Config.KEY_DOCUMENT_END, qwertyKeys[15]);
+        changed.putExtra(Config.KEY_SELECT_TO_DOCUMENT_START, qwertyKeys[16]);
+        changed.putExtra(Config.KEY_SELECT_TO_DOCUMENT_END, qwertyKeys[17]);
         changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
@@ -889,6 +906,10 @@ public final class MainActivity extends Activity {
             case Config.ACTION_OPEN_QUICK_PHRASE: return "快捷语";
             case Config.ACTION_UNDO: return "撤销";
             case Config.ACTION_REDO: return "重做";
+            case Config.ACTION_DOCUMENT_START: return "文首";
+            case Config.ACTION_DOCUMENT_END: return "文尾";
+            case Config.ACTION_SELECT_TO_DOCUMENT_START: return "选文首";
+            case Config.ACTION_SELECT_TO_DOCUMENT_END: return "选文尾";
             default: return "—";
         }
     }

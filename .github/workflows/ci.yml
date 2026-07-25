@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -33,34 +33,3 @@ jobs:
       - name: 单元测试、Lint 与 Debug 构建
         shell: bash
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug assembleDebug
-
-  generate-v1-11-5-source:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.head_ref == 'codex/trigger-v1.11.5-source' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      SOURCE_BRANCH: codex/release-v1.11.5-source
-    steps:
-      - name: 检出主分支
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: 生成并推送正式源码分支
-        shell: bash
-        run: |
-          set -euo pipefail
-          git checkout -B "$SOURCE_BRANCH"
-          python3 tools/patch_document_navigation_test.py
-          python3 tools/finalize_document_navigation_release.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "发布 v1.11.5：新增全文导航与跨行选择"
-          git push --force-with-lease origin HEAD:"$SOURCE_BRANCH"

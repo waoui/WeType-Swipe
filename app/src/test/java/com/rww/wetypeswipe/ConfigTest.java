@@ -48,6 +48,26 @@ public final class ConfigTest {
         assertEquals("重做", Config.actionName(Config.ACTION_REDO));
     }
 
+    @Test public void documentActionsRemainBindableAndKeepStableIds() {
+        Config config = new Config();
+        config.documentStart = "a";
+        config.documentEnd = "b";
+        config.selectToDocumentStart = "d";
+        config.selectToDocumentEnd = "e";
+        config.rebuildActionMap();
+
+        assertEquals(16, Config.ACTION_DOCUMENT_START);
+        assertEquals(17, Config.ACTION_DOCUMENT_END);
+        assertEquals(18, Config.ACTION_SELECT_TO_DOCUMENT_START);
+        assertEquals(19, Config.ACTION_SELECT_TO_DOCUMENT_END);
+        assertEquals(Config.ACTION_DOCUMENT_START, config.actionFor("a", false));
+        assertEquals(Config.ACTION_DOCUMENT_END, config.actionFor("b", false));
+        assertEquals(Config.ACTION_SELECT_TO_DOCUMENT_START, config.actionFor("d", false));
+        assertEquals(Config.ACTION_SELECT_TO_DOCUMENT_END, config.actionFor("e", false));
+        assertEquals("选文首", Config.shortActionLabel(Config.ACTION_SELECT_TO_DOCUMENT_START));
+        assertEquals("选至文尾", Config.actionName(Config.ACTION_SELECT_TO_DOCUMENT_END));
+    }
+
     @Test public void labelNormalizationIsUnicodeSafe() {
         assertEquals("", Config.normalizeLabelValue(null));
         assertEquals(Config.LABEL_HIDDEN,
