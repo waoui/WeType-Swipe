@@ -3,6 +3,8 @@ name: 生成 v1.11.5 正式源码分支
 on:
   issues:
     types: [opened]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -11,8 +13,12 @@ permissions:
 jobs:
   generate:
     if: >-
-      github.event.issue.user.login == github.repository_owner &&
-      github.event.issue.title == 'Generate v1.11.5 source'
+      (github.event_name == 'issues' &&
+       github.event.issue.user.login == github.repository_owner &&
+       github.event.issue.title == 'Generate v1.11.5 source') ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'codex/trigger-v1.11.5-source')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -172,7 +178,7 @@ jobs:
           git push origin HEAD:"$SOURCE_BRANCH"
 
       - name: 关闭源码生成 Issue
-        if: success()
+        if: success() && github.event_name == 'issues'
         shell: bash
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
