@@ -24,7 +24,7 @@ replace_once(
 replace_once(
     main_hook,
     'logInfo("v1.11.5 entered target package; document navigation actions enabled");',
-    'logInfo("v1.11.6-test2 entered target package; about icon multi-tap settings enabled");',
+    'logInfo("v1.11.6-test3 entered target package; verified view-touch settings unlock enabled");',
 )
 
 replace_once(
@@ -34,27 +34,7 @@ replace_once(
 ''',
     '''    private Runnable keyboardHintHideTask;
     private final AboutIconUnlock aboutIconUnlock = new AboutIconUnlock();
-    private volatile WeakReference<Activity> aboutActivityRef = new WeakReference<>(null);
     private BroadcastReceiver configReceiver;
-''',
-)
-
-replace_once(
-    main_hook,
-    '''        hookAfter(Application.class.getDeclaredMethod("onCreate"),
-                chain -> captureApplication(chain.getThisObject()));
-
-        hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
-''',
-    '''        hookAfter(Application.class.getDeclaredMethod("onCreate"),
-                chain -> captureApplication(chain.getThisObject()));
-
-        hookAfter(Activity.class.getDeclaredMethod("onResume"),
-                chain -> captureSettingsActivity(chain.getThisObject()));
-        hookBefore(Activity.class.getDeclaredMethod("dispatchTouchEvent", MotionEvent.class),
-                chain -> captureSettingsTouch(chain.getThisObject(), (MotionEvent) chain.getArg(0)));
-
-        hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
 ''',
 )
 
@@ -62,174 +42,68 @@ replace_once(
     main_hook,
     '''    private void captureIme(Object object) {
 ''',
-    '''    private void captureSettingsActivity(Object object) {
-        if (!(object instanceof Activity)) return;
-        Activity activity = (Activity) object;
-        try {
-            if (!TARGET.equals(activity.getPackageName())) return;
-        } catch (Throwable ignored) {
-            return;
+    '''    private static Activity findActivity(Context context) {
+        Context current = context;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            if (current instanceof Activity) return (Activity) current;
+            if (!(current instanceof ContextWrapper)) return null;
+            Context base = ((ContextWrapper) current).getBaseContext();
+            if (base == current) return null;
+            current = base;
         }
-        ensureConfigSync(activity);
-        try {
-            if (isAboutSettingsActivity(activity)) {
-                aboutActivityRef = new WeakReference<>(activity);
-                logInfo("about page detected; tap app icon 7 times to open embedded settings");
-            } else if (aboutActivityRef.get() == activity) {
-                aboutActivityRef = new WeakReference<>(null);
-                aboutIconUnlock.reset();
-            }
-        } catch (Throwable throwable) {
-            logError("about activity detection failed", throwable);
-        }
+        return null;
     }
 
-    private void captureSettingsTouch(Object object, MotionEvent event) {
-        if (!(object instanceof Activity) || event == null || event.getActionMasked() != MotionEvent.ACTION_UP) return;
-        Activity activity = (Activity) object;
+    private void tryHandleEmbeddedSettingsUnlock(View source, MotionEvent event) {
+        if (source == null || event == null || event.getActionMasked() != MotionEvent.ACTION_UP) return;
+        Activity activity = findActivity(source.getContext());
+        if (activity == null || activity.isFinishing()) return;
         try {
             if (!TARGET.equals(activity.getPackageName())) return;
-            Activity cached = aboutActivityRef.get();
-            if (cached != activity) {
-                if (!isAboutSettingsActivity(activity)) {
-                    aboutIconUnlock.reset();
-                    return;
-                }
-                aboutActivityRef = new WeakReference<>(activity);
-            }
-            if (!isAboutIconTap(activity, event)) {
+            View decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+            if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0) return;
+
+            int[] location = new int[2];
+            decor.getLocationOnScreen(location);
+            float x = event.getRawX() - location[0];
+            float y = event.getRawY() - location[1];
+            int width = decor.getWidth();
+            int height = decor.getHeight();
+
+            // The About logo lives in the upper part of the page. Do not depend on TextView,
+            // resource id, Activity name or Compose/native implementation details.
+            boolean triggerZone = x >= width * 0.10f && x <= width * 0.90f
+                    && y >= height * 0.04f && y <= height * 0.62f;
+            if (!triggerZone) {
                 aboutIconUnlock.reset();
                 return;
             }
-            if (!aboutIconUnlock.registerTap(SystemClock.elapsedRealtime())) return;
 
-            View decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
-            Runnable open = () -> {
+            float tolerance = Math.max(dp(source, 48), Math.min(width, height) * 0.12f);
+            int before = aboutIconUnlock.tapCount();
+            boolean unlocked = aboutIconUnlock.registerTap(
+                    SystemClock.elapsedRealtime(), event.getEventTime(), x, y, tolerance);
+            int after = aboutIconUnlock.tapCount();
+            if (after != before && (after == 1 || after == 6)) {
+                logInfo("embedded settings tap progress=" + after + "/7 activity="
+                        + activity.getClass().getName());
+            }
+            if (!unlocked) return;
+
+            decor.post(() -> {
                 try {
                     if (activity.isFinishing()) return;
                     EmbeddedSettingsUi.show(
                             activity,
                             () -> ConfigSnapshot.copyOf(cachedConfig),
                             config -> applyEmbeddedConfig(activity, config));
-                    logInfo("embedded settings opened by about icon seven-tap");
+                    logInfo("embedded settings opened by verified global view-touch seven-tap");
                 } catch (Throwable throwable) {
                     logError("embedded settings open failed", throwable);
                 }
-            };
-            if (decor != null) decor.post(open); else open.run();
+            });
         } catch (Throwable throwable) {
-            logError("about icon multi-tap failed", throwable);
-        }
-    }
-
-    private static boolean isAboutSettingsActivity(Activity activity) {
-        if (activity == null || activity.isFinishing()) return false;
-        String className = activity.getClass().getName().toLowerCase(Locale.ROOT);
-        View root;
-        try {
-            root = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
-        } catch (Throwable ignored) {
-            root = null;
-        }
-        String pageText = collectPageText(root).replace(" ", "");
-        String lowerText = pageText.toLowerCase(Locale.ROOT);
-        boolean explicit = pageText.contains("关于微信输入法") || lowerText.contains("aboutwetype");
-        boolean hasAbout = pageText.contains("关于") || className.contains("about");
-        boolean hasWeType = pageText.contains("微信输入法") || lowerText.contains("wetype");
-        boolean hasMeta = pageText.contains("版本") || pageText.contains("隐私")
-                || pageText.contains("用户协议") || lowerText.contains("version")
-                || lowerText.contains("privacy");
-        return explicit || (hasAbout && hasWeType && hasMeta) || (className.contains("about") && hasWeType);
-    }
-
-    private static String collectPageText(View view) {
-        if (view == null) return "";
-        StringBuilder text = new StringBuilder();
-        collectPageText(view, text, 0);
-        return text.toString();
-    }
-
-    private static void collectPageText(View view, StringBuilder out, int depth) {
-        if (view == null || out.length() > 12_000 || depth > 40) return;
-        if (view instanceof TextView) {
-            CharSequence value;
-            try { value = ((TextView) view).getText(); }
-            catch (Throwable ignored) { value = null; }
-            if (value != null && value.length() > 0) out.append(' ').append(value);
-        }
-        if (!(view instanceof ViewGroup)) return;
-        ViewGroup group = (ViewGroup) view;
-        int count;
-        try { count = group.getChildCount(); }
-        catch (Throwable ignored) { return; }
-        for (int i = 0; i < count; i++) {
-            collectPageText(group.getChildAt(i), out, depth + 1);
-        }
-    }
-
-    private static boolean isAboutIconTap(Activity activity, MotionEvent event) {
-        View root = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
-        if (root == null || root.getWidth() <= 0 || root.getHeight() <= 0) return false;
-        float x = event.getX();
-        float y = event.getY();
-
-        Rect candidate = new Rect();
-        int[] bestScore = {Integer.MIN_VALUE};
-        findAboutIconCandidate(root, root.getWidth(), root.getHeight(), candidate, bestScore, 0);
-        if (bestScore[0] > Integer.MIN_VALUE && candidate.contains(Math.round(x), Math.round(y))) return true;
-
-        int width = root.getWidth();
-        int height = root.getHeight();
-        Rect fallback = new Rect(width * 15 / 100, height * 7 / 100,
-                width * 85 / 100, height * 55 / 100);
-        return fallback.contains(Math.round(x), Math.round(y));
-    }
-
-    private static void findAboutIconCandidate(View view, int rootWidth, int rootHeight,
-                                                Rect bestRect, int[] bestScore, int depth) {
-        if (view == null || depth > 40) return;
-        try {
-            if (view.getVisibility() == View.VISIBLE && view.getAlpha() > 0.01f
-                    && view instanceof android.widget.ImageView
-                    && view.getWidth() > 0 && view.getHeight() > 0) {
-                int[] location = new int[2];
-                view.getLocationInWindow(location);
-                Rect rect = new Rect(location[0], location[1],
-                        location[0] + view.getWidth(), location[1] + view.getHeight());
-                int centerX = rect.centerX();
-                int centerY = rect.centerY();
-                int minSide = Math.min(rect.width(), rect.height());
-                int maxSide = Math.max(rect.width(), rect.height());
-                int score = 0;
-                if (centerX > rootWidth * 20 / 100 && centerX < rootWidth * 80 / 100) score += 300;
-                if (centerY > rootHeight * 5 / 100 && centerY < rootHeight * 60 / 100) score += 220;
-                if (minSide > 0 && maxSide <= minSide * 3 / 2) score += 180;
-                if (minSide >= Math.max(32, rootWidth / 16) && maxSide <= rootWidth * 55 / 100) score += 160;
-                CharSequence description = view.getContentDescription();
-                String hint = description == null ? "" : description.toString().toLowerCase(Locale.ROOT);
-                try {
-                    if (view.getId() != View.NO_ID) {
-                        hint += " " + view.getResources().getResourceEntryName(view.getId()).toLowerCase(Locale.ROOT);
-                    }
-                } catch (Throwable ignored) {}
-                if (hint.contains("logo") || hint.contains("icon") || hint.contains("wetype")
-                        || hint.contains("微信输入法")) score += 500;
-                score += Math.min(120, minSide / 2);
-                if (score > bestScore[0]) {
-                    bestScore[0] = score;
-                    bestRect.set(rect);
-                }
-            }
-        } catch (Throwable ignored) {}
-
-        if (!(view instanceof ViewGroup)) return;
-        ViewGroup group = (ViewGroup) view;
-        int count;
-        try { count = group.getChildCount(); }
-        catch (Throwable ignored) { return; }
-        for (int i = 0; i < count; i++) {
-            findAboutIconCandidate(group.getChildAt(i), rootWidth, rootHeight,
-                    bestRect, bestScore, depth + 1);
+            logError("embedded settings seven-tap failed", throwable);
         }
     }
 
@@ -262,6 +136,23 @@ replace_once(
 ''',
 )
 
+replace_once(
+    main_hook,
+    '''        View view = (View) target;
+        MotionEvent event = (MotionEvent) eventObject;
+        Class<?> keyboardBase = keyboardBaseClass;
+''',
+    '''        View view = (View) target;
+        MotionEvent event = (MotionEvent) eventObject;
+
+        // This View.dispatchTouchEvent hook is the same proven chain used by the keyboard
+        // gesture feature. Run the hidden settings detector before filtering to keyboard views.
+        tryHandleEmbeddedSettingsUnlock(view, event);
+
+        Class<?> keyboardBase = keyboardBaseClass;
+''',
+)
+
 embedded_ui = ROOT / "app/src/main/java/com/rww/wetypeswipe/EmbeddedSettingsUi.java"
 replace_once(
     embedded_ui,
@@ -271,22 +162,22 @@ replace_once(
 replace_once(
     embedded_ui,
     "内置模块模式 · v1.11.6-test1",
-    "内置模块模式 · v1.11.6-test2",
+    "内置模块模式 · v1.11.6-test3",
 )
 
 main_activity = ROOT / "app/src/main/java/com/rww/wetypeswipe/MainActivity.java"
 replace_once(
     main_activity,
     'v1.11.5 · 新增全文导航与跨行选择',
-    'v1.11.6-test2 · 关于页图标七击设置',
+    'v1.11.6-test3 · 关于图标七击内置设置',
 )
 
 gradle_properties = ROOT / "gradle.properties"
 properties = gradle_properties.read_text(encoding="utf-8")
-properties, code_count = re.subn(r"(?m)^VERSION_CODE=.*$", "VERSION_CODE=46", properties, count=1)
-properties, name_count = re.subn(r"(?m)^VERSION_NAME=.*$", "VERSION_NAME=1.11.6-test2", properties, count=1)
+properties, code_count = re.subn(r"(?m)^VERSION_CODE=.*$", "VERSION_CODE=47", properties, count=1)
+properties, name_count = re.subn(r"(?m)^VERSION_NAME=.*$", "VERSION_NAME=1.11.6-test3", properties, count=1)
 if code_count != 1 or name_count != 1:
     raise SystemExit("Could not update VERSION_CODE/VERSION_NAME")
 gradle_properties.write_text(properties, encoding="utf-8")
 
-print("Applied v1.11.6-test2 about icon seven-tap settings patch")
+print("Applied v1.11.6-test3 verified global view-touch seven-tap settings patch")
