@@ -13,6 +13,7 @@ on:
       - "app/src/test/java/com/rww/wetypeswipe/ConfigSnapshotTest.java"
       - "app/src/test/java/com/rww/wetypeswipe/EmbeddedConfigEditorTest.java"
       - "tools/patch_embedded_settings_test.py"
+      - "tools/patch_embedded_settings_test3_extra.py"
       - "TEST_NOTES_v1.11.6-test3.md"
       - ".github/workflows/build-embedded-settings-test.yml"
   pull_request:
@@ -52,7 +53,9 @@ jobs:
 
       - name: 应用已验证触摸链七击设置补丁
         shell: bash
-        run: python3 tools/patch_embedded_settings_test.py
+        run: |
+          python3 tools/patch_embedded_settings_test.py
+          python3 tools/patch_embedded_settings_test3_extra.py
 
       - name: 恢复永久签名证书
         shell: bash
