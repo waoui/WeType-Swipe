@@ -1,17 +1,19 @@
-name: 构建 v1.11.6-test1 内置模块设置测试包
+name: 构建 v1.11.6-test2 关于页图标七击设置测试包
 
 on:
   push:
     branches:
-      - codex/embedded-settings-v1.11.6-test1
+      - codex/embedded-settings-v1.11.6-test2
     paths:
+      - "app/src/main/java/com/rww/wetypeswipe/AboutIconUnlock.java"
       - "app/src/main/java/com/rww/wetypeswipe/ConfigSnapshot.java"
       - "app/src/main/java/com/rww/wetypeswipe/EmbeddedConfigEditor.java"
       - "app/src/main/java/com/rww/wetypeswipe/EmbeddedSettingsUi.java"
+      - "app/src/test/java/com/rww/wetypeswipe/AboutIconUnlockTest.java"
       - "app/src/test/java/com/rww/wetypeswipe/ConfigSnapshotTest.java"
       - "app/src/test/java/com/rww/wetypeswipe/EmbeddedConfigEditorTest.java"
       - "tools/patch_embedded_settings_test.py"
-      - "TEST_NOTES_v1.11.6-test1.md"
+      - "TEST_NOTES_v1.11.6-test2.md"
       - ".github/workflows/build-embedded-settings-test.yml"
   pull_request:
     branches: [main]
@@ -48,7 +50,7 @@ jobs:
       - name: 配置 Gradle 缓存
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 应用内置设置补丁
+      - name: 应用关于页图标七击设置补丁
         shell: bash
         run: python3 tools/patch_embedded_settings_test.py
 
@@ -89,15 +91,15 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts
           cp app/build/outputs/apk/release/app-release.apk \
-            artifacts/WeType_Swipe_LSPosed_v1.11.6-test1.apk
-          cp TEST_NOTES_v1.11.6-test1.md artifacts/
+            artifacts/WeType_Swipe_LSPosed_v1.11.6-test2.apk
+          cp TEST_NOTES_v1.11.6-test2.md artifacts/
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile
 
           root = Path.cwd()
-          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.6-test1_source.zip"
-          prefix = Path("WeType-Swipe-v1.11.6-test1")
+          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.6-test2_source.zip"
+          prefix = Path("WeType-Swipe-v1.11.6-test2")
           excluded_dirs = {".git", ".gradle", ".idea", "build", "artifacts", "release", "source-package"}
           excluded_names = {"signing.jks", "local.properties"}
           with ZipFile(output, "w", ZIP_DEFLATED) as archive:
@@ -110,14 +112,14 @@ jobs:
                   archive.write(path, (prefix / relative).as_posix())
           PY
           (cd artifacts && sha256sum \
-            WeType_Swipe_LSPosed_v1.11.6-test1.apk \
-            WeType_Swipe_LSPosed_v1.11.6-test1_source.zip \
-            > WeType_Swipe_v1.11.6-test1_SHA256SUMS.txt)
+            WeType_Swipe_LSPosed_v1.11.6-test2.apk \
+            WeType_Swipe_LSPosed_v1.11.6-test2_source.zip \
+            > WeType_Swipe_v1.11.6-test2_SHA256SUMS.txt)
 
       - name: 上传测试包
         uses: actions/upload-artifact@v4
         with:
-          name: WeType-Swipe-v1.11.6-test1-signed
+          name: WeType-Swipe-v1.11.6-test2-signed
           path: artifacts/*
           if-no-files-found: error
           retention-days: 14
