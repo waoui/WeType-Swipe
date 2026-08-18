@@ -11,13 +11,13 @@ public final class AboutIconUnlockTest {
         return unlock.registerTap(now, eventTime, x, y, 80f);
     }
 
-    @Test public void seventhQuickTapUnlocksAndResets() {
+    @Test public void fifthQuickTapUnlocksAndResets() {
         AboutIconUnlock unlock = new AboutIconUnlock();
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 4; i++) {
             assertFalse(tap(unlock, 1_000L + i * 200L, 10_000L + i, 500f, 420f));
         }
-        assertEquals(6, unlock.tapCount());
-        assertTrue(tap(unlock, 2_200L, 10_006L, 500f, 420f));
+        assertEquals(4, unlock.tapCount());
+        assertTrue(tap(unlock, 1_800L, 10_004L, 500f, 420f));
         assertEquals(0, unlock.tapCount());
     }
 
