@@ -1,7 +1,7 @@
 package com.rww.wetypeswipe;
 
 final class AboutIconUnlock {
-    static final int REQUIRED_TAPS = 7;
+    static final int REQUIRED_TAPS = 5;
     static final long RESET_GAP_MS = 2_000L;
 
     private int tapCount;
