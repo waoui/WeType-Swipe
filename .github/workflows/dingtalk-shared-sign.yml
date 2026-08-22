@@ -1,0 +1,99 @@
+name: 钉钉助手共享永久签名
+
+on:
+  push:
+    branches:
+      - build/dingtalk-helper-shared-signing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign-dingtalk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
+      INPUT_ZIP_URL: https://sdmntprjapaneast.oaiusercontent.com/files/00000000-e850-8209-ae75-2263184b9c48/raw?se=2026-08-22T03%3A53%3A54Z&sp=r&sv=2026-02-06&sr=b&scid=9c2210ba-0bd1-5967-a938-e8ce69c8f103&skoid=03727f49-62d3-42ac-8350-1c0e6559d238&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-08-22T01%3A09%3A47Z&ske=2026-08-23T01%3A09%3A47Z&sks=b&skv=2026-02-06&sig=np%2BfQnWof0BtSc2egPl7YMn1N8FtqKFq5D5qLDduLo0%3D
+
+    steps:
+      - name: 检出签名分支
+        uses: actions/checkout@v4
+
+      - name: 下载钉钉 APK 构建产物
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work output
+          curl --fail --location --retry 3 "$INPUT_ZIP_URL" -o work/input.zip
+          unzip -q work/input.zip -d work/input
+          input_apk="$(find work/input -type f -name '*.apk' | head -n 1)"
+          test -n "$input_apk"
+          cp "$input_apk" work/input.apk
+
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Android Build Tools
+        run: sdkmanager 'build-tools;35.0.0'
+
+      - name: 恢复 WeType 永久签名
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_BASE64"
+          test -n "$SIGNING_STORE_PASSWORD"
+          test -n "$SIGNING_KEY_ALIAS"
+          test -n "$SIGNING_KEY_PASSWORD"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$SIGNING_STORE_FILE"
+          test -s "$SIGNING_STORE_FILE"
+
+      - name: 使用 WeType 证书签名钉钉助手
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$apksigner" sign \
+            --ks "$SIGNING_STORE_FILE" \
+            --ks-key-alias "$SIGNING_KEY_ALIAS" \
+            --ks-pass "pass:$SIGNING_STORE_PASSWORD" \
+            --key-pass "pass:$SIGNING_KEY_PASSWORD" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out output/DingTalk_Helper_8.5x_API102_AntiRecall_v0.3.2-test1_WeTypeSigned.apk \
+            work/input.apk
+
+      - name: 强制校验永久证书指纹
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          apk="output/DingTalk_Helper_8.5x_API102_AntiRecall_v0.3.2-test1_WeTypeSigned.apk"
+          verification="$($apksigner verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$verification"
+          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          case "$normalized" in
+            *"$EXPECTED_CERT_SHA256"*) ;;
+            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
+          esac
+          sha256sum "$apk" > output/SHA256SUMS.txt
+
+      - name: 上传同签名钉钉助手
+        uses: actions/upload-artifact@v4
+        with:
+          name: dingtalk-helper-v0.3.2-wetype-signed-${{ github.sha }}
+          path: output/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 清理签名文件
+        if: always()
+        run: rm -f "$SIGNING_STORE_FILE"
