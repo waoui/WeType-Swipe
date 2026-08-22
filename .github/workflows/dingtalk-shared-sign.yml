@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - build/dingtalk-helper-shared-signing
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
