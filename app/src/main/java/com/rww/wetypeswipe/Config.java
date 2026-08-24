@@ -37,6 +37,8 @@ final class Config {
     static final String KEY_REVISION = "revision";
     static final String KEY_QWERTY_LABEL_PREFIX = "qwerty_label_";
     static final String KEY_T9_LABEL_PREFIX = "t9_label_";
+    static final String KEY_QWERTY_TEXT_PREFIX = "qwerty_text_";
+    static final String KEY_T9_TEXT_PREFIX = "t9_text_";
     static final String LABEL_HIDDEN = "__HIDDEN__";
 
     static final String KEY_T9_2 = "t9_key_2";
@@ -69,13 +71,14 @@ final class Config {
     static final int ACTION_DOCUMENT_END = 17;
     static final int ACTION_SELECT_TO_DOCUMENT_START = 18;
     static final int ACTION_SELECT_TO_DOCUMENT_END = 19;
+    static final int ACTION_INSERT_TEXT = 20;
 
     static final String[] ACTION_MENU_LABELS = {
             "未绑定", "全选", "剪切", "复制", "粘贴",
             "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
             "文首", "文尾", "选至文首", "选至文尾",
-            "剪贴板", "快捷发送", "撤销", "重做", "禁用下滑"
+            "剪贴板", "快捷发送", "撤销", "重做", "输入指定内容", "禁用下滑"
     };
 
     private static final int[] ACTION_MENU_VALUES = {
@@ -98,6 +101,7 @@ final class Config {
             ACTION_OPEN_QUICK_PHRASE,
             ACTION_UNDO,
             ACTION_REDO,
+            ACTION_INSERT_TEXT,
             ACTION_DISABLE
     };
 
@@ -130,6 +134,8 @@ final class Config {
     final int[] t9Actions = new int[10];
     final String[] qwertyLabels = new String[26];
     final String[] t9Labels = new String[10];
+    final String[] qwertyTexts = new String[26];
+    final String[] t9Texts = new String[10];
     private final int[] actionMap = new int[26];
     private boolean hasAnyBinding;
 
@@ -153,6 +159,9 @@ final class Config {
         bind(openQuickPhrase, ACTION_OPEN_QUICK_PHRASE);
         bind(undo, ACTION_UNDO);
         bind(redo, ACTION_REDO);
+        for (int i = 0; i < qwertyTexts.length; i++) {
+            if (!normalizeInsertedText(qwertyTexts[i]).isEmpty()) actionMap[i] = ACTION_INSERT_TEXT;
+        }
         bindDisabled(disabledKeys);
 
         hasAnyBinding = false;
@@ -212,7 +221,7 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_SELECT_TO_DOCUMENT_END
+        return action >= ACTION_NONE && action <= ACTION_INSERT_TEXT
                 ? action : ACTION_NONE;
     }
 
@@ -234,6 +243,16 @@ final class Config {
         return KEY_QWERTY_LABEL_PREFIX + key;
     }
 
+    static String qwertyTextPrefKey(char key) {
+        if (key < 'a' || key > 'z') throw new IllegalArgumentException("key must be a..z");
+        return KEY_QWERTY_TEXT_PREFIX + key;
+    }
+
+    static String t9TextPrefKey(int digit) {
+        if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
+        return KEY_T9_TEXT_PREFIX + digit;
+    }
+
     static String t9LabelPrefKey(int digit) {
         if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
         return KEY_T9_LABEL_PREFIX + digit;
@@ -246,6 +265,22 @@ final class Config {
         int count = clean.codePointCount(0, clean.length());
         if (count > 4) clean = clean.substring(0, clean.offsetByCodePoints(0, 4));
         return clean;
+    }
+
+    static String normalizeInsertedText(String value) {
+        if (value == null) return "";
+        String clean = value.replace("\u0000", "");
+        int count = clean.codePointCount(0, clean.length());
+        if (count > 1000) clean = clean.substring(0, clean.offsetByCodePoints(0, 1000));
+        return clean;
+    }
+
+    String textFor(String key, boolean t9) {
+        if (key == null || key.length() != 1) return "";
+        char value = Character.toLowerCase(key.charAt(0));
+        if (t9 && value >= '2' && value <= '9') return normalizeInsertedText(t9Texts[value - '0']);
+        if (!t9 && value >= 'a' && value <= 'z') return normalizeInsertedText(qwertyTexts[value - 'a']);
+        return "";
     }
 
     String labelFor(String key, boolean t9, int action) {
@@ -281,6 +316,7 @@ final class Config {
             case ACTION_OPEN_QUICK_PHRASE: return "快捷";
             case ACTION_UNDO: return "撤销";
             case ACTION_REDO: return "重做";
+            case ACTION_INSERT_TEXT: return "文本";
             default: return "";
         }
     }
@@ -344,6 +380,7 @@ final class Config {
             case ACTION_OPEN_QUICK_PHRASE: return "快捷发送";
             case ACTION_UNDO: return "撤销";
             case ACTION_REDO: return "重做";
+            case ACTION_INSERT_TEXT: return "输入指定内容";
             default: return "未绑定";
         }
     }

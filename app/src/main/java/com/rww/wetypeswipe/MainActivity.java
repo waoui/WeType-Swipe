@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputFilter;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -89,12 +90,14 @@ public final class MainActivity extends Activity {
     private final TextView[] qwertyActionViews = new TextView[26];
     private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
     private final String[] qwertyCustomLabels = new String[26];
+    private final String[] qwertyInsertTexts = new String[26];
     private String disabledKeys = "";
 
     private final int[] t9Actions = new int[10];
     private final TextView[] t9ActionViews = new TextView[10];
     private final LinearLayout[] t9KeyViews = new LinearLayout[10];
     private final String[] t9CustomLabels = new String[10];
+    private final String[] t9InsertTexts = new String[10];
 
     private SeekBar threshold;
     private SeekBar t9Threshold;
@@ -181,7 +184,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.5 · 新增全文导航与跨行选择", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.6 · 新增内置设置与指定内容", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -513,12 +516,59 @@ public final class MainActivity extends Activity {
         dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
                 (parent, view, position, id) -> {
                     int action = Config.actionForMenuPosition(position);
-                    assignQwertyAction(key, action);
                     dialog.dismiss();
+                    if (action == Config.ACTION_INSERT_TEXT) {
+                        int index = letter - 'a';
+                        showInsertTextDialog(Character.toUpperCase(letter) + " 键输入内容",
+                                qwertyInsertTexts[index], value -> {
+                                    assignQwertyAction(key, Config.ACTION_NONE);
+                                    qwertyInsertTexts[index] = value;
+                                    updateAllQwertyViews();
+                                });
+                    } else {
+                        assignQwertyAction(key, action);
+                    }
                 }));
         dialog.show();
     }
 
+
+    private interface TextValueChanged { void apply(String value); }
+
+    private void showInsertTextDialog(String title, String currentValue, TextValueChanged changed) {
+        EditText input = new EditText(this);
+        input.setText(Config.normalizeInsertedText(currentValue));
+        input.setHint("最多 1000 个字符，支持换行、符号和 Emoji");
+        input.setSingleLine(false);
+        input.setMinLines(3);
+        input.setMaxLines(8);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1000)});
+        LinearLayout host = vertical();
+        host.setPadding(dp(20), dp(8), dp(20), 0);
+        host.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        AlertDialog edit = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(host)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", null)
+                .create();
+        edit.setOnShowListener(ignored -> edit.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String value = Config.normalizeInsertedText(input.getText().toString());
+            if (value.isEmpty()) {
+                Toast.makeText(this, "输入内容不能为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            changed.apply(value);
+            edit.dismiss();
+        }));
+        edit.show();
+        input.requestFocus();
+        input.setSelection(input.length());
+    }
 
     private interface LabelValueChanged { void apply(String value); }
 
@@ -600,6 +650,8 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < qwertyKeys.length; i++) {
             if (key.equals(qwertyKeys[i])) qwertyKeys[i] = "";
         }
+        int textIndex = key.charAt(0) - 'a';
+        if (textIndex >= 0 && textIndex < qwertyInsertTexts.length) qwertyInsertTexts[textIndex] = "";
         disabledKeys = disabledKeys.replace(key, "");
 
         if (action == Config.ACTION_DISABLE) {
@@ -637,6 +689,9 @@ public final class MainActivity extends Activity {
 
     private int actionForQwertyKey(String key) {
         if (key == null || key.length() != 1) return Config.ACTION_NONE;
+        int textIndex = key.charAt(0) - 'a';
+        if (textIndex >= 0 && textIndex < qwertyInsertTexts.length
+                && !Config.normalizeInsertedText(qwertyInsertTexts[textIndex]).isEmpty()) return Config.ACTION_INSERT_TEXT;
         if (disabledKeys.indexOf(key) >= 0) return Config.ACTION_DISABLE;
         for (int i = 0; i < qwertyKeys.length; i++) {
             if (key.equals(qwertyKeys[i])) return QWERTY_ACTIONS[i];
@@ -653,15 +708,26 @@ public final class MainActivity extends Activity {
                 .create();
         dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
                 (parent, view, position, id) -> {
-                    t9Actions[digit] = Config.actionForMenuPosition(position);
-                    updateT9View(digit);
+                    int action = Config.actionForMenuPosition(position);
                     dialog.dismiss();
+                    if (action == Config.ACTION_INSERT_TEXT) {
+                        showInsertTextDialog(Config.t9Label(digit) + " 输入内容", t9InsertTexts[digit], value -> {
+                            t9Actions[digit] = Config.ACTION_INSERT_TEXT;
+                            t9InsertTexts[digit] = value;
+                            updateT9View(digit);
+                        });
+                    } else {
+                        t9Actions[digit] = action;
+                        t9InsertTexts[digit] = "";
+                        updateT9View(digit);
+                    }
                 }));
         dialog.show();
     }
 
     private void restoreQwertyDefaults() {
         Arrays.fill(qwertyKeys, "");
+        Arrays.fill(qwertyInsertTexts, "");
         qwertyKeys[0] = "z";
         qwertyKeys[1] = "x";
         qwertyKeys[2] = "c";
@@ -678,6 +744,7 @@ public final class MainActivity extends Activity {
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (dialog, which) -> {
                     Arrays.fill(qwertyKeys, "");
+                    Arrays.fill(qwertyInsertTexts, "");
                     disabledKeys = "";
                     updateAllQwertyViews();
                 })
@@ -692,6 +759,7 @@ public final class MainActivity extends Activity {
                 .setPositiveButton("清空", (dialog, which) -> {
                     for (int digit = 2; digit <= 9; digit++) {
                         t9Actions[digit] = Config.ACTION_NONE;
+                        t9InsertTexts[digit] = "";
                         updateT9View(digit);
                     }
                 })
@@ -721,12 +789,16 @@ public final class MainActivity extends Activity {
         for (char key = 'a'; key <= 'z'; key++) {
             qwertyCustomLabels[key - 'a'] = Config.normalizeLabelValue(
                     prefs.getString(Config.qwertyLabelPrefKey(key), ""));
+            qwertyInsertTexts[key - 'a'] = Config.normalizeInsertedText(
+                    prefs.getString(Config.qwertyTextPrefKey(key), ""));
         }
         for (int digit = 2; digit <= 9; digit++) {
             t9CustomLabels[digit] = Config.normalizeLabelValue(
                     prefs.getString(Config.t9LabelPrefKey(digit), ""));
             t9Actions[digit] = Config.validAction(
                     prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
+            t9InsertTexts[digit] = Config.normalizeInsertedText(
+                    prefs.getString(Config.t9TextPrefKey(digit), ""));
         }
     }
 
@@ -780,11 +852,15 @@ public final class MainActivity extends Activity {
         for (char key = 'a'; key <= 'z'; key++) {
             editor.putString(Config.qwertyLabelPrefKey(key),
                     Config.normalizeLabelValue(qwertyCustomLabels[key - 'a']));
+            editor.putString(Config.qwertyTextPrefKey(key),
+                    Config.normalizeInsertedText(qwertyInsertTexts[key - 'a']));
         }
         for (int digit = 2; digit <= 9; digit++) {
             editor.putInt(Config.t9PrefKey(digit), t9Actions[digit]);
             editor.putString(Config.t9LabelPrefKey(digit),
                     Config.normalizeLabelValue(t9CustomLabels[digit]));
+            editor.putString(Config.t9TextPrefKey(digit),
+                    Config.normalizeInsertedText(t9InsertTexts[digit]));
         }
 
         if (!editor.commit()) {
@@ -823,11 +899,15 @@ public final class MainActivity extends Activity {
         for (char key = 'a'; key <= 'z'; key++) {
             changed.putExtra(Config.qwertyLabelPrefKey(key),
                     Config.normalizeLabelValue(qwertyCustomLabels[key - 'a']));
+            changed.putExtra(Config.qwertyTextPrefKey(key),
+                    Config.normalizeInsertedText(qwertyInsertTexts[key - 'a']));
         }
         for (int digit = 2; digit <= 9; digit++) {
             changed.putExtra(Config.t9PrefKey(digit), t9Actions[digit]);
             changed.putExtra(Config.t9LabelPrefKey(digit),
                     Config.normalizeLabelValue(t9CustomLabels[digit]));
+            changed.putExtra(Config.t9TextPrefKey(digit),
+                    Config.normalizeInsertedText(t9InsertTexts[digit]));
         }
         sendBroadcast(changed);
 
@@ -910,6 +990,7 @@ public final class MainActivity extends Activity {
             case Config.ACTION_DOCUMENT_END: return "文尾";
             case Config.ACTION_SELECT_TO_DOCUMENT_START: return "选文首";
             case Config.ACTION_SELECT_TO_DOCUMENT_END: return "选文尾";
+            case Config.ACTION_INSERT_TEXT: return "文本";
             default: return "—";
         }
     }
