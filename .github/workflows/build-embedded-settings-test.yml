@@ -1,21 +1,15 @@
-name: 构建 v1.11.6-test4 统一界面五击设置测试包
+name: 构建 v1.11.6-test5 下滑输入指定内容测试包
 
 on:
   push:
     branches:
-      - codex/embedded-settings-v1.11.6-test4
+      - codex/embedded-settings-v1.11.6-test5
     paths:
-      - "app/src/main/java/com/rww/wetypeswipe/AboutIconUnlock.java"
-      - "app/src/main/java/com/rww/wetypeswipe/ConfigSnapshot.java"
-      - "app/src/main/java/com/rww/wetypeswipe/EmbeddedConfigEditor.java"
-      - "app/src/main/java/com/rww/wetypeswipe/EmbeddedSettingsUi.java"
-      - "app/src/test/java/com/rww/wetypeswipe/AboutIconUnlockTest.java"
-      - "app/src/test/java/com/rww/wetypeswipe/ConfigSnapshotTest.java"
-      - "app/src/test/java/com/rww/wetypeswipe/EmbeddedConfigEditorTest.java"
-      - "tools/patch_embedded_settings_test.py"
-      - "tools/patch_embedded_settings_test3_extra.py"
-      - "tools/patch_embedded_settings_test4.py"
-      - "TEST_NOTES_v1.11.6-test4.md"
+      - "tools/patch_embedded_settings_test5.py"
+      - "tools/patch_embedded_settings_test5_runtime.py"
+      - "tools/patch_embedded_settings_test5_main_ui.py"
+      - "tools/patch_embedded_settings_test5_embedded_ui.py"
+      - "TEST_NOTES_v1.11.6-test5.md"
       - ".github/workflows/build-embedded-settings-test.yml"
   pull_request:
     branches: [main]
@@ -52,12 +46,20 @@ jobs:
       - name: 配置 Gradle 缓存
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 应用统一界面五击设置补丁
+      - name: 应用五击统一界面与指定内容补丁
         shell: bash
         run: |
+          set -euo pipefail
           python3 tools/patch_embedded_settings_test.py
           python3 tools/patch_embedded_settings_test3_extra.py
           python3 tools/patch_embedded_settings_test4.py
+          python3 tools/patch_embedded_settings_test5.py
+          python3 tools/patch_embedded_settings_test5_runtime.py
+          python3 tools/patch_embedded_settings_test5_main_ui.py
+          python3 tools/patch_embedded_settings_test5_embedded_ui.py
+          grep -q 'VERSION_NAME=1.11.6-test5' gradle.properties
+          grep -q 'VERSION_CODE=49' gradle.properties
+          grep -q 'ACTION_INSERT_TEXT = 20' app/src/main/java/com/rww/wetypeswipe/Config.java
 
       - name: 恢复永久签名证书
         shell: bash
@@ -95,16 +97,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          cp app/build/outputs/apk/release/app-release.apk \
-            artifacts/WeType_Swipe_LSPosed_v1.11.6-test4.apk
-          cp TEST_NOTES_v1.11.6-test4.md artifacts/
+          cp app/build/outputs/apk/release/app-release.apk artifacts/WeType_Swipe_LSPosed_v1.11.6-test5.apk
+          cp TEST_NOTES_v1.11.6-test5.md artifacts/
           python3 - <<'PY'
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile
-
           root = Path.cwd()
-          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.6-test4_source.zip"
-          prefix = Path("WeType-Swipe-v1.11.6-test4")
+          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.6-test5_source.zip"
+          prefix = Path("WeType-Swipe-v1.11.6-test5")
           excluded_dirs = {".git", ".gradle", ".idea", "build", "artifacts", "release", "source-package"}
           excluded_names = {"signing.jks", "local.properties"}
           with ZipFile(output, "w", ZIP_DEFLATED) as archive:
@@ -116,15 +116,12 @@ jobs:
                       continue
                   archive.write(path, (prefix / relative).as_posix())
           PY
-          (cd artifacts && sha256sum \
-            WeType_Swipe_LSPosed_v1.11.6-test4.apk \
-            WeType_Swipe_LSPosed_v1.11.6-test4_source.zip \
-            > WeType_Swipe_v1.11.6-test4_SHA256SUMS.txt)
+          (cd artifacts && sha256sum WeType_Swipe_LSPosed_v1.11.6-test5.apk WeType_Swipe_LSPosed_v1.11.6-test5_source.zip > WeType_Swipe_v1.11.6-test5_SHA256SUMS.txt)
 
       - name: 上传测试包
         uses: actions/upload-artifact@v4
         with:
-          name: WeType-Swipe-v1.11.6-test4-signed
+          name: WeType-Swipe-v1.11.6-test5-signed
           path: artifacts/*
           if-no-files-found: error
           retention-days: 14
