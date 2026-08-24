@@ -1,41 +1,26 @@
-name: 构建 v1.11.6-test5 下滑输入指定内容测试包
+name: 正式化并推送 v1.11.6 发布源码
 
 on:
   push:
     branches:
       - codex/embedded-settings-v1.11.6-test5
     paths:
-      - "tools/patch_embedded_settings_test5.py"
-      - "tools/patch_embedded_settings_test5_runtime.py"
-      - "tools/patch_embedded_settings_test5_main_ui.py"
-      - "tools/patch_embedded_settings_test5_embedded_ui.py"
-      - "TEST_NOTES_v1.11.6-test5.md"
       - ".github/workflows/build-embedded-settings-test.yml"
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
-
-concurrency:
-  group: embedded-settings-${{ github.ref }}
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  build:
+  promote:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
-      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-      EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
-
     steps:
-      - name: 检出测试分支
+      - name: 检出已验收 test5
         uses: actions/checkout@v4
+        with:
+          ref: codex/embedded-settings-v1.11.6-test5
+          fetch-depth: 0
 
       - name: 配置 Java 17
         uses: actions/setup-java@v4
@@ -46,7 +31,7 @@ jobs:
       - name: 配置 Gradle 缓存
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 应用五击统一界面与指定内容补丁
+      - name: 生成正式 v1.11.6 源码
         shell: bash
         run: |
           set -euo pipefail
@@ -57,76 +42,90 @@ jobs:
           python3 tools/patch_embedded_settings_test5_runtime.py
           python3 tools/patch_embedded_settings_test5_main_ui.py
           python3 tools/patch_embedded_settings_test5_embedded_ui.py
-          grep -q 'VERSION_NAME=1.11.6-test5' gradle.properties
-          grep -q 'VERSION_CODE=49' gradle.properties
-          grep -q 'ACTION_INSERT_TEXT = 20' app/src/main/java/com/rww/wetypeswipe/Config.java
 
-      - name: 恢复永久签名证书
-        shell: bash
-        env:
-          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
-        run: |
-          set -euo pipefail
-          test -n "$SIGNING_KEY_BASE64"
-          test -n "$SIGNING_STORE_PASSWORD"
-          test -n "$SIGNING_KEY_ALIAS"
-          test -n "$SIGNING_KEY_PASSWORD"
-          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$SIGNING_STORE_FILE"
-
-      - name: 单元测试、Lint 与 Release 构建
-        shell: bash
-        run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintDebug assembleRelease
-
-      - name: 校验永久签名
-        shell: bash
-        run: |
-          set -euo pipefail
-          apk="app/build/outputs/apk/release/app-release.apk"
-          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -x "$apksigner"
-          verification="$($apksigner verify --verbose --print-certs "$apk")"
-          printf '%s\n' "$verification"
-          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
-          case "$normalized" in
-            *"$EXPECTED_CERT_SHA256"*) ;;
-            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
-          esac
-
-      - name: 整理测试附件
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts
-          cp app/build/outputs/apk/release/app-release.apk artifacts/WeType_Swipe_LSPosed_v1.11.6-test5.apk
-          cp TEST_NOTES_v1.11.6-test5.md artifacts/
           python3 - <<'PY'
           from pathlib import Path
-          from zipfile import ZIP_DEFLATED, ZipFile
-          root = Path.cwd()
-          output = root / "artifacts/WeType_Swipe_LSPosed_v1.11.6-test5_source.zip"
-          prefix = Path("WeType-Swipe-v1.11.6-test5")
-          excluded_dirs = {".git", ".gradle", ".idea", "build", "artifacts", "release", "source-package"}
-          excluded_names = {"signing.jks", "local.properties"}
-          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
-              for path in sorted(root.rglob("*")):
-                  relative = path.relative_to(root)
-                  if any(part in excluded_dirs for part in relative.parts):
-                      continue
-                  if path.name in excluded_names or not path.is_file():
-                      continue
-                  archive.write(path, (prefix / relative).as_posix())
+          root = Path('.')
+
+          props = root / 'gradle.properties'
+          text = props.read_text(encoding='utf-8')
+          text = text.replace('VERSION_CODE=49', 'VERSION_CODE=50')
+          text = text.replace('VERSION_NAME=1.11.6-test5', 'VERSION_NAME=1.11.6')
+          props.write_text(text, encoding='utf-8')
+
+          replacements = {
+              root / 'app/src/main/java/com/rww/wetypeswipe/MainHook.java': [
+                  ('v1.11.6-test5 entered target package; custom text action enabled',
+                   'v1.11.6 entered target package; embedded settings and custom text enabled'),
+              ],
+              root / 'app/src/main/java/com/rww/wetypeswipe/MainActivity.java': [
+                  ('v1.11.6-test5 · 新增下滑输入指定内容',
+                   'v1.11.6 · 新增内置设置与指定内容'),
+              ],
+              root / 'app/src/main/java/com/rww/wetypeswipe/EmbeddedSettingsUi.java': [
+                  ('v1.11.6-test5 · 内置模块模式', 'v1.11.6 · 内置模块模式'),
+              ],
+          }
+          for path, pairs in replacements.items():
+              value = path.read_text(encoding='utf-8')
+              for old, new in pairs:
+                  if old not in value:
+                      raise SystemExit(f'missing formal replacement in {path}: {old}')
+                  value = value.replace(old, new)
+              path.write_text(value, encoding='utf-8')
+
+          ui = root / 'app/src/main/java/com/rww/wetypeswipe/EmbeddedSettingsUi.java'
+          value = ui.read_text(encoding='utf-8')
+          value = value.replace('import android.widget.FrameLayout;\n', '')
+          value = value.replace('import java.util.Locale;\n', '')
+          value = value.replace('    private static final String ENTRY_TAG = "wetype_swipe_embedded_settings_entry";\n', '')
+          start = value.find('    static void ensureAboutEntry(')
+          end = value.find('    private final Activity activity;', start)
+          if start < 0 or end < 0:
+              raise SystemExit('abandoned test1 visible-entry block not found')
+          value = value[:start] + value[end:]
+          ui.write_text(value, encoding='utf-8')
+
+          changelog = root / 'CHANGELOG.md'
+          value = changelog.read_text(encoding='utf-8')
+          marker = '# 更新记录\n\n'
+          section = '''## v1.11.6\n\n- 微信输入法“关于”页图标连续点击 5 次可打开内置模块设置，解决内置模块无法进入独立设置 APK 的问题\n- 内置设置页与独立模块设置页统一 26 键、九宫格、手势、显示反馈和保存交互\n- 新增“输入指定内容”下滑动作，动作编号追加为 20，原有 0–19 编号保持不变\n- 26 键与九宫格 2–9 均可为每个按键保存独立文本，多个按键可同时使用该动作\n- 指定内容最多 1000 个 Unicode 字符，支持中文、英文、数字、符号、Emoji 和换行\n- 执行指定内容前结束当前 composing 状态，再通过 InputConnection.commitText 直接插入，不占用剪贴板\n- 配置快照、目标应用缓存和跨进程同步均支持指定内容，强停后仍可恢复\n- 保持密码输入框、手写、数字／符号页等既有隔离与兼容逻辑不变\n\n'''
+          if '## v1.11.6\n' not in value:
+              if not value.startswith(marker):
+                  raise SystemExit('unexpected changelog header')
+              changelog.write_text(marker + section + value[len(marker):], encoding='utf-8')
+
+          (root / 'RELEASE_NOTES_v1.11.6.md').write_text('''# WeType-Swipe v1.11.6\n\n## 新增\n\n- 微信输入法“关于”页图标连续点击 5 次打开内置模块设置。\n- 内置设置页与独立模块设置页统一布局与交互。\n- 新增“输入指定内容”下滑动作，支持 26 键和九宫格 2–9。\n- 每个按键可保存独立文本，多个按键可以同时使用该动作。\n- 指定内容最多 1000 个 Unicode 字符，支持中文、英文、数字、符号、Emoji 与换行。\n\n## 实现与兼容\n\n- 新动作 ID 为 `20`，原有 `0–19` 不改号。\n- 输入前结束 composing 状态，再使用 `InputConnection.commitText()` 插入，不占用剪贴板。\n- 配置快照、目标应用缓存与跨进程广播同步支持指定内容。\n- 继续保留密码输入框、手写、数字／符号页等既有隔离逻辑。\n\n## 版本\n\n- Version Name: `1.11.6`\n- Version Code: `50`\n''', encoding='utf-8')
           PY
-          (cd artifacts && sha256sum WeType_Swipe_LSPosed_v1.11.6-test5.apk WeType_Swipe_LSPosed_v1.11.6-test5_source.zip > WeType_Swipe_v1.11.6-test5_SHA256SUMS.txt)
 
-      - name: 上传测试包
-        uses: actions/upload-artifact@v4
-        with:
-          name: WeType-Swipe-v1.11.6-test5-signed
-          path: artifacts/*
-          if-no-files-found: error
-          retention-days: 14
+          rm -f TEST_NOTES_v1.11.6-test2.md TEST_NOTES_v1.11.6-test3.md \
+                TEST_NOTES_v1.11.6-test4.md TEST_NOTES_v1.11.6-test5.md
+          rm -f tools/patch_embedded_settings_test.py \
+                tools/patch_embedded_settings_test3_extra.py \
+                tools/patch_embedded_settings_test4.py \
+                tools/patch_embedded_settings_test5.py \
+                tools/patch_embedded_settings_test5_runtime.py \
+                tools/patch_embedded_settings_test5_main_ui.py \
+                tools/patch_embedded_settings_test5_embedded_ui.py
+          rm -f .github/workflows/build-embedded-settings-test.yml
 
-      - name: 清理签名文件
-        if: always()
+          grep -q '^VERSION_CODE=50$' gradle.properties
+          grep -q '^VERSION_NAME=1.11.6$' gradle.properties
+          grep -q 'ACTION_INSERT_TEXT = 20' app/src/main/java/com/rww/wetypeswipe/Config.java
+          grep -q 'REQUIRED_TAPS = 5' app/src/main/java/com/rww/wetypeswipe/AboutIconUnlock.java
+          ! grep -R -n 'ensureAboutEntry\|ENTRY_TAG\|v1.11.6-test5' app/src/main/java gradle.properties
+
+      - name: 正式源码测试
         shell: bash
-        run: rm -f signing.jks
+        run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintDebug assembleDebug
+
+      - name: 推送正式发布分支
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git status --short
+          git commit -m 'Finalize v1.11.6 source'
+          git push --force origin HEAD:release/v1.11.6
