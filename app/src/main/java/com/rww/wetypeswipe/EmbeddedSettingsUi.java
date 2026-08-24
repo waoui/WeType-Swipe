@@ -7,146 +7,47 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.InputFilter;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.util.Locale;
 
 final class EmbeddedSettingsUi {
-    private static final String ENTRY_TAG = "wetype_swipe_embedded_settings_entry";
     private static final int PAGE = Color.rgb(245, 247, 250);
     private static final int CARD = Color.WHITE;
     private static final int TEXT = Color.rgb(32, 36, 43);
     private static final int SECONDARY = Color.rgb(101, 109, 122);
     private static final int DIVIDER = Color.rgb(232, 235, 240);
     private static final int ACCENT = Color.rgb(36, 103, 214);
+    private static final int ACCENT_SOFT = Color.rgb(232, 240, 254);
     private static final int KEY_IDLE = Color.rgb(247, 249, 252);
     private static final int KEY_STROKE = Color.rgb(218, 223, 232);
+    private static final int DANGER = Color.rgb(190, 55, 55);
+    private static final int DANGER_SOFT = Color.rgb(255, 237, 237);
+    private static final String[] T9_LETTERS = {
+            "", "", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ"
+    };
 
     interface ConfigProvider { Config get(); }
     interface ConfigSaver { void save(Config config); }
-
-    static void ensureAboutEntry(Activity activity, ConfigProvider provider, ConfigSaver saver) {
-        if (activity == null || activity.isFinishing()) return;
-        View contentView = activity.findViewById(android.R.id.content);
-        if (!(contentView instanceof FrameLayout)) return;
-        FrameLayout content = (FrameLayout) contentView;
-        View existing = content.findViewWithTag(ENTRY_TAG);
-        if (!isAboutPage(content)) {
-            if (existing != null) content.removeView(existing);
-            return;
-        }
-        if (existing != null) return;
-
-        LinearLayout entry = new LinearLayout(activity);
-        entry.setTag(ENTRY_TAG);
-        entry.setOrientation(LinearLayout.HORIZONTAL);
-        entry.setGravity(Gravity.CENTER_VERTICAL);
-        entry.setPadding(dp(activity, 18), dp(activity, 12), dp(activity, 14), dp(activity, 12));
-        entry.setClickable(true);
-        entry.setFocusable(true);
-        entry.setElevation(dp(activity, 5));
-        entry.setBackground(rounded(Color.WHITE, dp(activity, 14), Color.rgb(220, 225, 234), 1));
-
-        LinearLayout labels = new LinearLayout(activity);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text(activity, "下滑快捷键设置", 16, TEXT);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        labels.addView(title);
-        TextView subtitle = text(activity, "内置模块设置 · 无需单独安装模块 APK", 12, SECONDARY);
-        LinearLayout.LayoutParams subtitleParams = wrap();
-        subtitleParams.topMargin = dp(activity, 3);
-        labels.addView(subtitle, subtitleParams);
-        entry.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView arrow = text(activity, "›", 28, SECONDARY);
-        arrow.setGravity(Gravity.CENTER);
-        entry.addView(arrow, new LinearLayout.LayoutParams(dp(activity, 34), dp(activity, 42)));
-        entry.setOnClickListener(v -> show(activity, provider, saver));
-
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-        params.setMargins(dp(activity, 14), dp(activity, 14), dp(activity, 14), dp(activity, 20));
-        content.addView(entry, params);
-        entry.bringToFront();
-    }
-
-    static boolean isAboutMarkerText(CharSequence value) {
-        if (value == null) return false;
-        String text = value.toString().trim().replace(" ", "");
-        return text.contains("关于微信输入法") || text.equals("关于")
-                || text.toLowerCase(Locale.ROOT).contains("aboutwetype");
-    }
-
-    private static boolean isAboutPage(View root) {
-        boolean strong = containsText(root, "关于微信输入法")
-                || containsTextIgnoreSpace(root, "About WeType");
-        if (strong) return true;
-        return containsExactText(root, "关于")
-                && containsText(root, "微信输入法")
-                && (containsText(root, "版本") || containsText(root, "隐私"));
-    }
-
-    private static boolean containsText(View view, String expected) {
-        if (view instanceof TextView) {
-            CharSequence value = ((TextView) view).getText();
-            if (value != null && value.toString().contains(expected)) return true;
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                if (containsText(group.getChildAt(i), expected)) return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean containsTextIgnoreSpace(View view, String expected) {
-        if (view instanceof TextView) {
-            CharSequence value = ((TextView) view).getText();
-            if (value != null) {
-                String normalized = value.toString().replace(" ", "").toLowerCase(Locale.ROOT);
-                if (normalized.contains(expected.replace(" ", "").toLowerCase(Locale.ROOT))) return true;
-            }
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                if (containsTextIgnoreSpace(group.getChildAt(i), expected)) return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean containsExactText(View view, String expected) {
-        if (view instanceof TextView) {
-            CharSequence value = ((TextView) view).getText();
-            if (value != null && expected.equals(value.toString().trim())) return true;
-        }
-        if (view instanceof ViewGroup) {
-            ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                if (containsExactText(group.getChildAt(i), expected)) return true;
-            }
-        }
-        return false;
-    }
 
     private final Activity activity;
     private final Config config;
     private final ConfigSaver saver;
     private final TextView[] qwertyActionViews = new TextView[26];
+    private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
     private final TextView[] t9ActionViews = new TextView[10];
+    private final LinearLayout[] t9KeyViews = new LinearLayout[10];
     private SeekBar qwertyThreshold;
     private SeekBar t9Threshold;
     private TextView qwertyThresholdValue;
@@ -162,7 +63,7 @@ final class EmbeddedSettingsUi {
         this.saver = saver;
     }
 
-    private static void show(Activity activity, ConfigProvider provider, ConfigSaver saver) {
+    static void show(Activity activity, ConfigProvider provider, ConfigSaver saver) {
         Config source = provider == null ? null : provider.get();
         new EmbeddedSettingsUi(activity, source, saver).showDialog();
     }
@@ -192,7 +93,7 @@ final class EmbeddedSettingsUi {
         ScrollView scroll = new ScrollView(activity);
         scroll.setFillViewport(true);
         LinearLayout content = vertical();
-        content.setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 24));
+        content.setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 22));
         content.addView(buildQwertyCard());
         content.addView(buildT9Card());
         content.addView(buildGestureCard());
@@ -206,29 +107,38 @@ final class EmbeddedSettingsUi {
     private View buildHeader() {
         LinearLayout header = horizontal();
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(activity, 10), dp(activity, 12), dp(activity, 16), dp(activity, 12));
+        header.setPadding(dp(activity, 18), dp(activity, 14), dp(activity, 12), dp(activity, 14));
         header.setBackgroundColor(Color.WHITE);
 
-        TextView close = text(activity, "‹", 32, TEXT);
-        close.setGravity(Gravity.CENTER);
-        close.setOnClickListener(v -> dialog.dismiss());
-        header.addView(close, new LinearLayout.LayoutParams(dp(activity, 46), dp(activity, 46)));
-
         LinearLayout labels = vertical();
-        TextView title = text(activity, "下滑快捷键设置", 20, TEXT);
+        TextView title = text(activity, "微信输入法下滑快捷键", 21, TEXT);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         labels.addView(title);
-        TextView sub = text(activity, "内置模块模式 · v1.11.6-test1", 12, SECONDARY);
-        labels.addView(sub);
+        TextView version = text(activity, "v1.11.6 · 内置模块模式", 13, SECONDARY);
+        LinearLayout.LayoutParams versionParams = wrap();
+        versionParams.topMargin = dp(activity, 4);
+        labels.addView(version, versionParams);
         header.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView close = text(activity, "关闭", 14, ACCENT);
+        close.setTypeface(Typeface.DEFAULT_BOLD);
+        close.setGravity(Gravity.CENTER);
+        close.setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8));
+        close.setBackground(rounded(ACCENT_SOFT, dp(activity, 10), 0, 0));
+        close.setOnClickListener(v -> dialog.dismiss());
+        header.addView(close, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 42)));
         return header;
     }
 
     private View buildQwertyCard() {
-        LinearLayout card = card("26 键快捷操作", "点击按键设置动作，长按设置显示标签。");
+        LinearLayout card = createCard(
+                "26 键快捷操作",
+                "点击设置动作，长按设置该按键显示的自定义标签。",
+                true);
         String[] rows = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
         LinearLayout keyboard = vertical();
-        keyboard.setPadding(dp(activity, 6), dp(activity, 8), dp(activity, 6), dp(activity, 8));
+        keyboard.setPadding(dp(activity, 6), dp(activity, 9), dp(activity, 6), dp(activity, 9));
         for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
             LinearLayout row = horizontal();
             row.setGravity(Gravity.CENTER);
@@ -238,7 +148,7 @@ final class EmbeddedSettingsUi {
             for (int i = 0; i < letters.length(); i++) {
                 char letter = letters.charAt(i);
                 LinearLayout key = buildQwertyKey(letter);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 60), 1f);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 62), 1f);
                 params.setMargins(dp(activity, 2), dp(activity, 3), dp(activity, 2), dp(activity, 3));
                 row.addView(key, params);
             }
@@ -250,13 +160,14 @@ final class EmbeddedSettingsUi {
         card.addView(divider());
         LinearLayout tools = horizontal();
         tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView defaults = actionButton("恢复默认 Z/X/C/V");
+        TextView defaults = smallAction("恢复默认 Z/X/C/V", false);
         defaults.setOnClickListener(v -> {
             EmbeddedConfigEditor.restoreDefaults(config);
             refreshQwerty();
+            Toast.makeText(activity, "已恢复默认 Z/X/C/V", Toast.LENGTH_SHORT).show();
         });
         tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 42), 1f));
-        TextView clear = actionButton("清空 26 键");
+        TextView clear = smallAction("清空 26 键", true);
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 42), 1f);
         clearParams.leftMargin = dp(activity, 8);
         tools.addView(clear, clearParams);
@@ -272,11 +183,12 @@ final class EmbeddedSettingsUi {
     }
 
     private LinearLayout buildQwertyKey(char letter) {
+        int index = letter - 'a';
         LinearLayout key = vertical();
         key.setGravity(Gravity.CENTER);
+        key.setPadding(dp(activity, 1), dp(activity, 4), dp(activity, 1), dp(activity, 4));
         key.setClickable(true);
         key.setFocusable(true);
-        key.setBackground(rounded(KEY_IDLE, dp(activity, 8), KEY_STROKE, 1));
         TextView name = text(activity, String.valueOf(Character.toUpperCase(letter)), 15, TEXT);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         name.setGravity(Gravity.CENTER);
@@ -284,8 +196,12 @@ final class EmbeddedSettingsUi {
         TextView action = text(activity, "—", 9, SECONDARY);
         action.setGravity(Gravity.CENTER);
         action.setMaxLines(1);
-        qwertyActionViews[letter - 'a'] = action;
-        key.addView(action);
+        action.setSingleLine(true);
+        LinearLayout.LayoutParams actionParams = wrap();
+        actionParams.topMargin = dp(activity, 3);
+        key.addView(action, actionParams);
+        qwertyKeyViews[index] = key;
+        qwertyActionViews[index] = action;
         key.setOnClickListener(v -> showQwertyActionDialog(letter));
         key.setOnLongClickListener(v -> {
             showQwertyLabelDialog(letter);
@@ -296,58 +212,104 @@ final class EmbeddedSettingsUi {
     }
 
     private View buildT9Card() {
-        LinearLayout card = card("九宫格快捷操作", "2–9 可独立绑定；长按数字设置标签。");
-        LinearLayout grid = vertical();
-        grid.setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 10));
-        int[][] rows = {{2,3,4,5}, {6,7,8,9}};
+        LinearLayout card = createCard(
+                "九宫格快捷操作",
+                "2–9 可设置。点击设置动作，长按设置该按键显示标签。",
+                true);
+        LinearLayout keyboard = vertical();
+        keyboard.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 9));
+        int[][] rows = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
         for (int[] digits : rows) {
             LinearLayout row = horizontal();
+            row.setGravity(Gravity.CENTER);
             for (int digit : digits) {
-                LinearLayout key = vertical();
-                key.setGravity(Gravity.CENTER);
-                key.setBackground(rounded(KEY_IDLE, dp(activity, 9), KEY_STROKE, 1));
-                TextView name = text(activity, String.valueOf(digit), 17, TEXT);
-                name.setTypeface(Typeface.DEFAULT_BOLD);
-                key.addView(name);
-                TextView action = text(activity, "—", 10, SECONDARY);
-                action.setGravity(Gravity.CENTER);
-                t9ActionViews[digit] = action;
-                key.addView(action);
-                key.setOnClickListener(v -> showT9ActionDialog(digit));
-                key.setOnLongClickListener(v -> {
-                    showT9LabelDialog(digit);
-                    return true;
-                });
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 66), 1f);
-                params.setMargins(dp(activity, 3), dp(activity, 3), dp(activity, 3), dp(activity, 3));
+                View key = buildT9Key(digit);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 72), 1f);
+                params.setMargins(dp(activity, 4), dp(activity, 4), dp(activity, 4), dp(activity, 4));
                 row.addView(key, params);
-                updateT9(digit);
             }
-            grid.addView(row);
+            keyboard.addView(row);
         }
-        card.addView(grid);
+        card.addView(keyboard);
+        card.addView(divider());
+        LinearLayout tools = horizontal();
+        tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
+        TextView clear = smallAction("清空九宫格映射", true);
+        tools.addView(clear, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 42)));
+        clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
+                .setTitle("清空九宫格映射？")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (d, w) -> {
+                    for (int digit = 2; digit <= 9; digit++) config.t9Actions[digit] = Config.ACTION_NONE;
+                    for (int digit = 2; digit <= 9; digit++) updateT9(digit);
+                }).show());
+        card.addView(tools);
         return card;
     }
 
+    private View buildT9Key(int digit) {
+        LinearLayout key = vertical();
+        key.setGravity(Gravity.CENTER);
+        key.setPadding(dp(activity, 6), dp(activity, 5), dp(activity, 6), dp(activity, 5));
+        TextView digitView = text(activity, String.valueOf(digit), 20, TEXT);
+        digitView.setTypeface(Typeface.DEFAULT_BOLD);
+        digitView.setGravity(Gravity.CENTER);
+        key.addView(digitView);
+        TextView letters = text(activity, digit >= 2 ? T9_LETTERS[digit] : "", 10, SECONDARY);
+        letters.setGravity(Gravity.CENTER);
+        key.addView(letters);
+        if (digit >= 2 && digit <= 9) {
+            TextView action = text(activity, "—", 10, SECONDARY);
+            action.setGravity(Gravity.CENTER);
+            action.setMaxLines(1);
+            action.setSingleLine(true);
+            LinearLayout.LayoutParams actionParams = wrap();
+            actionParams.topMargin = dp(activity, 2);
+            key.addView(action, actionParams);
+            t9KeyViews[digit] = key;
+            t9ActionViews[digit] = action;
+            key.setClickable(true);
+            key.setFocusable(true);
+            key.setOnClickListener(v -> showT9ActionDialog(digit));
+            key.setOnLongClickListener(v -> {
+                showT9LabelDialog(digit);
+                return true;
+            });
+            updateT9(digit);
+        } else {
+            TextView note = text(activity, "普通键", 9, SECONDARY);
+            note.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams noteParams = wrap();
+            noteParams.topMargin = dp(activity, 2);
+            key.addView(note, noteParams);
+            key.setBackground(rounded(KEY_IDLE, dp(activity, 12), KEY_STROKE, 1));
+        }
+        return key;
+    }
+
     private View buildGestureCard() {
-        LinearLayout card = card("下滑触发距离", "数值越大，越不容易误触。修改后保存立即生效。");
-        qwertyThreshold = slider(card, "26 键", 6, 40, config.thresholdDp, true);
-        t9Threshold = slider(card, "九宫格", 10, 48, config.t9ThresholdDp, false);
+        LinearLayout card = createCard("手势设置", "距离越大越不容易误触。", true);
+        qwertyThreshold = slider(card, "26 键触发距离", 6, 40, config.thresholdDp, true);
+        card.addView(divider());
+        t9Threshold = slider(card, "九宫格触发距离", 10, 48, config.t9ThresholdDp, false);
         return card;
     }
 
     private SeekBar slider(LinearLayout card, String title, int min, int max, int value, boolean qwerty) {
         LinearLayout row = vertical();
-        row.setPadding(dp(activity, 14), dp(activity, 10), dp(activity, 14), dp(activity, 10));
+        row.setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 16), dp(activity, 8));
         LinearLayout titleRow = horizontal();
-        TextView label = text(activity, title, 14, TEXT);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label = text(activity, title, 15, TEXT);
         titleRow.addView(label, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView valueView = text(activity, value + " dp", 13, ACCENT);
+        TextView valueView = valueBadge(value + " dp");
         titleRow.addView(valueView);
         row.addView(titleRow);
         SeekBar seek = new SeekBar(activity);
         seek.setMax(max - min);
         seek.setProgress(Math.max(0, Math.min(max - min, value - min)));
+        seek.setPadding(0, dp(activity, 4), 0, 0);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 valueView.setText((progress + min) + " dp");
@@ -362,26 +324,46 @@ final class EmbeddedSettingsUi {
     }
 
     private View buildGeneralCard() {
-        LinearLayout card = card("显示与反馈", "内置模式不提供桌面图标开关，其余设置与独立模块一致。");
-        showLabels = checkbox("显示按键功能文字", config.showKeyLabels);
+        LinearLayout card = createCard("通用设置", null, false);
+        showLabels = checkbox("显示按键底部功能文字", config.showKeyLabels);
+        card.addView(showLabels, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 54)));
+        card.addView(divider());
+
         showHint = checkbox("显示下滑触发提示", config.showTriggerHint);
-        vibration = checkbox("模块主动震动", config.vibration);
-        card.addView(showLabels);
-        card.addView(showHint);
-        card.addView(vibration);
+        card.addView(showHint, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 54)));
+        TextView displayNote = text(activity, "关闭后只隐藏提示，不影响下滑功能。", 12, SECONDARY);
+        displayNote.setPadding(dp(activity, 18), 0, dp(activity, 18), dp(activity, 12));
+        card.addView(displayNote);
+        card.addView(divider());
+
+        vibration = checkbox("触发快捷操作时额外震动", config.vibration);
+        card.addView(vibration, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 54)));
+        card.addView(divider());
+
+        TextView embedded = text(activity, "内置模块设置入口：关于页面连续点击图标 5 次。", 12, SECONDARY);
+        embedded.setPadding(dp(activity, 18), dp(activity, 12), dp(activity, 18), dp(activity, 14));
+        card.addView(embedded);
         return card;
     }
 
     private View buildSaveBar() {
-        LinearLayout bar = horizontal();
-        bar.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 12));
+        LinearLayout bar = vertical();
+        bar.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 11));
         bar.setBackgroundColor(Color.WHITE);
-        TextView save = text(activity, "保存并应用配置", 16, Color.WHITE);
+        bar.setElevation(dp(activity, 10));
+        Button save = new Button(activity);
+        save.setText("保存并应用配置");
+        save.setTextSize(16);
+        save.setTextColor(Color.WHITE);
         save.setTypeface(Typeface.DEFAULT_BOLD);
-        save.setGravity(Gravity.CENTER);
-        save.setBackground(rounded(ACCENT, dp(activity, 12), ACCENT, 0));
+        save.setAllCaps(false);
+        save.setBackground(rounded(ACCENT, dp(activity, 12), 0, 0));
         save.setOnClickListener(v -> save());
-        bar.addView(save, new LinearLayout.LayoutParams(0, dp(activity, 50), 1f));
+        bar.addView(save, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 50)));
         return bar;
     }
 
@@ -409,9 +391,18 @@ final class EmbeddedSettingsUi {
         picker.setOnShowListener(ignored -> picker.getListView().setOnItemClickListener(
                 (parent, view, position, id) -> {
                     int action = Config.actionForMenuPosition(position);
-                    EmbeddedConfigEditor.assignQwerty(config, key, action);
-                    refreshQwerty();
                     picker.dismiss();
+                    if (action == Config.ACTION_INSERT_TEXT) {
+                        int index = letter - 'a';
+                        showInsertTextDialog(Character.toUpperCase(letter) + " 键输入内容",
+                                config.qwertyTexts[index], value -> {
+                                    EmbeddedConfigEditor.assignQwertyText(config, key, value);
+                                    refreshQwerty();
+                                });
+                    } else {
+                        EmbeddedConfigEditor.assignQwerty(config, key, action);
+                        refreshQwerty();
+                    }
                 }));
         picker.show();
     }
@@ -425,11 +416,56 @@ final class EmbeddedSettingsUi {
                 .create();
         picker.setOnShowListener(ignored -> picker.getListView().setOnItemClickListener(
                 (parent, view, position, id) -> {
-                    config.t9Actions[digit] = Config.actionForMenuPosition(position);
-                    updateT9(digit);
+                    int action = Config.actionForMenuPosition(position);
                     picker.dismiss();
+                    if (action == Config.ACTION_INSERT_TEXT) {
+                        showInsertTextDialog(Config.t9Label(digit) + " 输入内容", config.t9Texts[digit], value -> {
+                            EmbeddedConfigEditor.assignT9Text(config, digit, value);
+                            updateT9(digit);
+                        });
+                    } else {
+                        config.t9Actions[digit] = action;
+                        EmbeddedConfigEditor.clearT9Text(config, digit);
+                        updateT9(digit);
+                    }
                 }));
         picker.show();
+    }
+
+    private interface TextChanged { void apply(String value); }
+
+    private void showInsertTextDialog(String title, String currentValue, TextChanged changed) {
+        EditText input = new EditText(activity);
+        input.setText(Config.normalizeInsertedText(currentValue));
+        input.setHint("最多 1000 个字符，支持换行、符号和 Emoji");
+        input.setSingleLine(false);
+        input.setMinLines(3);
+        input.setMaxLines(8);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1000)});
+        LinearLayout host = vertical();
+        host.setPadding(dp(activity, 20), dp(activity, 8), dp(activity, 20), 0);
+        host.addView(input);
+        AlertDialog edit = new AlertDialog.Builder(activity)
+                .setTitle(title)
+                .setView(host)
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", null)
+                .create();
+        edit.setOnShowListener(ignored -> edit.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String value = Config.normalizeInsertedText(input.getText().toString());
+            if (value.isEmpty()) {
+                Toast.makeText(activity, "输入内容不能为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            changed.apply(value);
+            edit.dismiss();
+        }));
+        edit.show();
+        input.requestFocus();
+        input.setSelection(input.length());
     }
 
     private void showQwertyLabelDialog(char letter) {
@@ -502,57 +538,100 @@ final class EmbeddedSettingsUi {
     }
 
     private void updateQwerty(char letter) {
-        TextView view = qwertyActionViews[letter - 'a'];
-        if (view == null) return;
+        int index = letter - 'a';
+        TextView view = qwertyActionViews[index];
+        LinearLayout keyView = qwertyKeyViews[index];
+        if (view == null || keyView == null) return;
         int action = EmbeddedConfigEditor.actionForQwerty(config, String.valueOf(letter));
-        String name = action == Config.ACTION_NONE ? "—" : Config.shortActionLabel(action);
-        if (name == null || name.isEmpty()) name = Config.actionName(action);
-        view.setText(name);
+        view.setText(previewLabel(config.qwertyLabels[index], action));
+        if (action == Config.ACTION_DISABLE) {
+            view.setTextColor(DANGER);
+            keyView.setBackground(rounded(DANGER_SOFT, dp(activity, 9), Color.rgb(245, 190, 190), 1));
+        } else if (action == Config.ACTION_NONE) {
+            view.setTextColor(SECONDARY);
+            keyView.setBackground(rounded(KEY_IDLE, dp(activity, 9), KEY_STROKE, 1));
+        } else {
+            view.setTextColor(ACCENT);
+            keyView.setBackground(rounded(ACCENT_SOFT, dp(activity, 9), Color.rgb(190, 210, 245), 1));
+        }
     }
 
     private void updateT9(int digit) {
         TextView view = t9ActionViews[digit];
-        if (view == null) return;
+        LinearLayout keyView = t9KeyViews[digit];
+        if (view == null || keyView == null) return;
         int action = Config.validAction(config.t9Actions[digit]);
-        String name = action == Config.ACTION_NONE ? "—" : Config.shortActionLabel(action);
-        if (name == null || name.isEmpty()) name = Config.actionName(action);
-        view.setText(name);
+        view.setText(previewLabel(config.t9Labels[digit], action));
+        if (action == Config.ACTION_DISABLE) {
+            view.setTextColor(DANGER);
+            keyView.setBackground(rounded(DANGER_SOFT, dp(activity, 12), Color.rgb(245, 190, 190), 1));
+        } else if (action == Config.ACTION_NONE) {
+            view.setTextColor(SECONDARY);
+            keyView.setBackground(rounded(KEY_IDLE, dp(activity, 12), KEY_STROKE, 1));
+        } else {
+            view.setTextColor(ACCENT);
+            keyView.setBackground(rounded(ACCENT_SOFT, dp(activity, 12), Color.rgb(190, 210, 245), 1));
+        }
+    }
+
+    private String previewLabel(String configured, int action) {
+        if (action == Config.ACTION_NONE) return "—";
+        String normalized = Config.normalizeLabelValue(configured);
+        if (Config.LABEL_HIDDEN.equals(normalized)) return "隐藏";
+        if (!normalized.isEmpty()) return normalized;
+        String shortName = Config.shortActionLabel(action);
+        return shortName == null || shortName.isEmpty() ? Config.actionName(action) : shortName;
     }
 
     private CheckBox checkbox(String title, boolean checked) {
         CheckBox box = new CheckBox(activity);
         box.setText(title);
-        box.setTextSize(14);
+        box.setTextSize(15);
         box.setTextColor(TEXT);
         box.setChecked(checked);
         box.setPadding(dp(activity, 12), dp(activity, 6), dp(activity, 12), dp(activity, 6));
         return box;
     }
 
-    private LinearLayout card(String title, String subtitle) {
+    private LinearLayout createCard(String title, String subtitle, boolean showHeaderDivider) {
         LinearLayout card = vertical();
-        card.setBackground(rounded(CARD, dp(activity, 14), Color.rgb(230, 233, 239), 1));
+        card.setBackground(rounded(CARD, dp(activity, 16), 0, 0));
+        card.setElevation(dp(activity, 1));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cardParams.bottomMargin = dp(activity, 12);
         card.setLayoutParams(cardParams);
         LinearLayout head = vertical();
-        head.setPadding(dp(activity, 14), dp(activity, 13), dp(activity, 14), dp(activity, 10));
-        TextView titleView = text(activity, title, 16, TEXT);
+        head.setPadding(dp(activity, 16), dp(activity, 14), dp(activity, 16),
+                subtitle == null ? dp(activity, 12) : dp(activity, 11));
+        TextView titleView = text(activity, title, 18, TEXT);
         titleView.setTypeface(Typeface.DEFAULT_BOLD);
         head.addView(titleView);
-        TextView subtitleView = text(activity, subtitle, 12, SECONDARY);
-        LinearLayout.LayoutParams subParams = wrap();
-        subParams.topMargin = dp(activity, 3);
-        head.addView(subtitleView, subParams);
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView subtitleView = text(activity, subtitle, 12, SECONDARY);
+            LinearLayout.LayoutParams subParams = wrap();
+            subParams.topMargin = dp(activity, 4);
+            head.addView(subtitleView, subParams);
+        }
         card.addView(head);
+        if (showHeaderDivider) card.addView(divider());
         return card;
     }
 
-    private TextView actionButton(String title) {
-        TextView button = text(activity, title, 13, ACCENT);
+    private TextView valueBadge(String value) {
+        TextView view = text(activity, value, 13, ACCENT);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(activity, 10), dp(activity, 4), dp(activity, 10), dp(activity, 4));
+        view.setBackground(rounded(ACCENT_SOFT, dp(activity, 12), 0, 0));
+        return view;
+    }
+
+    private TextView smallAction(String title, boolean danger) {
+        TextView button = text(activity, title, 13, danger ? DANGER : ACCENT);
         button.setGravity(Gravity.CENTER);
-        button.setBackground(rounded(Color.rgb(246, 249, 255), dp(activity, 9), Color.rgb(210, 222, 246), 1));
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setBackground(rounded(danger ? DANGER_SOFT : ACCENT_SOFT, dp(activity, 10), 0, 0));
+        button.setClickable(true);
         return button;
     }
 

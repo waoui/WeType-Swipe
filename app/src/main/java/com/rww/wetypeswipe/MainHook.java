@@ -1,6 +1,7 @@
 package com.rww.wetypeswipe;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -109,6 +110,7 @@ public final class MainHook extends XposedModule {
     private volatile WeakReference<View> keyboardHintRootRef = new WeakReference<>(null);
     private volatile WeakReference<TextView> keyboardHintViewRef = new WeakReference<>(null);
     private Runnable keyboardHintHideTask;
+    private final AboutIconUnlock aboutIconUnlock = new AboutIconUnlock();
     private BroadcastReceiver configReceiver;
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -119,7 +121,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.5 entered target package; document navigation actions enabled");
+            logInfo("v1.11.6 entered target package; embedded settings and custom text enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -152,6 +154,25 @@ public final class MainHook extends XposedModule {
         hook(dispatchTouchEvent)
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(this::interceptDispatchTouch);
+
+        // Settings/About pages can be backed by ViewGroup/Compose containers whose touch
+        // dispatch never reaches View.dispatchTouchEvent. Observe ViewGroup separately, but
+        // only run the hidden-settings detector here; keyboard gesture handling remains on
+        // the existing proven View hook. AboutIconUnlock deduplicates the same ACTION_UP by
+        // eventTime, so a physical tap seen by both hooks still counts exactly once.
+        Method groupDispatchTouchEvent = ViewGroup.class.getDeclaredMethod(
+                "dispatchTouchEvent", MotionEvent.class);
+        groupDispatchTouchEvent.setAccessible(true);
+        hook(groupDispatchTouchEvent)
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(chain -> {
+                    Object groupTarget = chain.getThisObject();
+                    Object groupEvent = chain.getArg(0);
+                    if (groupTarget instanceof View && groupEvent instanceof MotionEvent) {
+                        tryHandleEmbeddedSettingsUnlock((View) groupTarget, (MotionEvent) groupEvent);
+                    }
+                    return chain.proceed();
+                });
 
         hooksInstalled = true;
         logInfo("stable dispatch hook installed");
@@ -187,6 +208,96 @@ public final class MainHook extends XposedModule {
             return;
         }
         ensureConfigSync(app);
+    }
+
+    private static Activity findActivity(Context context) {
+        Context current = context;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            if (current instanceof Activity) return (Activity) current;
+            if (!(current instanceof ContextWrapper)) return null;
+            Context base = ((ContextWrapper) current).getBaseContext();
+            if (base == current) return null;
+            current = base;
+        }
+        return null;
+    }
+
+    private void tryHandleEmbeddedSettingsUnlock(View source, MotionEvent event) {
+        if (source == null || event == null || event.getActionMasked() != MotionEvent.ACTION_UP) return;
+        Activity activity = findActivity(source.getContext());
+        if (activity == null || activity.isFinishing()) return;
+        try {
+            if (!TARGET.equals(activity.getPackageName())) return;
+            View decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+            if (decor == null || decor.getWidth() <= 0 || decor.getHeight() <= 0) return;
+
+            int[] location = new int[2];
+            decor.getLocationOnScreen(location);
+            float x = event.getRawX() - location[0];
+            float y = event.getRawY() - location[1];
+            int width = decor.getWidth();
+            int height = decor.getHeight();
+
+            // The About logo lives in the upper part of the page. Do not depend on TextView,
+            // resource id, Activity name or Compose/native implementation details.
+            boolean triggerZone = x >= width * 0.10f && x <= width * 0.90f
+                    && y >= height * 0.04f && y <= height * 0.62f;
+            if (!triggerZone) {
+                aboutIconUnlock.reset();
+                return;
+            }
+
+            float tolerance = Math.max(dp(source, 48), Math.min(width, height) * 0.12f);
+            int before = aboutIconUnlock.tapCount();
+            boolean unlocked = aboutIconUnlock.registerTap(
+                    SystemClock.elapsedRealtime(), event.getEventTime(), x, y, tolerance);
+            int after = aboutIconUnlock.tapCount();
+            if (after != before && (after == 1 || after == 4)) {
+                logInfo("embedded settings tap progress=" + after + "/5 activity="
+                        + activity.getClass().getName());
+            }
+            if (!unlocked) return;
+
+            decor.post(() -> {
+                try {
+                    if (activity.isFinishing()) return;
+                    EmbeddedSettingsUi.show(
+                            activity,
+                            () -> ConfigSnapshot.copyOf(cachedConfig),
+                            config -> applyEmbeddedConfig(activity, config));
+                    logInfo("embedded settings opened by verified global view-touch five-tap");
+                } catch (Throwable throwable) {
+                    logError("embedded settings open failed", throwable);
+                }
+            });
+        } catch (Throwable throwable) {
+            logError("embedded settings five-tap failed", throwable);
+        }
+    }
+
+    private synchronized void applyEmbeddedConfig(Context context, Config config) {
+        if (context == null || config == null) return;
+        try {
+            Config current = cachedConfig;
+            int currentRevision = current == null ? 0 : current.revision;
+            config.revision = Math.max(config.revision, currentRevision) + 1;
+            config.rebuildActionMap();
+            cachedConfig = config;
+            nativeSingleKeyLabelCache.clear();
+            targetCacheLoaded = true;
+
+            Context stable = context.getApplicationContext();
+            if (stable == null) stable = context;
+            persistTargetCache(stable, config);
+
+            Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
+            changed.setPackage(TARGET);
+            ConfigSnapshot.putInto(changed, config);
+            stable.sendBroadcast(changed);
+            logInfo("embedded settings saved revision=" + config.revision);
+        } catch (Throwable throwable) {
+            logError("embedded settings save failed", throwable);
+        }
     }
 
     private void captureIme(Object object) {
@@ -335,12 +446,16 @@ public final class MainHook extends XposedModule {
             for (char key = 'a'; key <= 'z'; key++) {
                 config.qwertyLabels[key - 'a'] = Config.normalizeLabelValue(
                         intent.getStringExtra(Config.qwertyLabelPrefKey(key)));
+                config.qwertyTexts[key - 'a'] = Config.normalizeInsertedText(
+                        intent.getStringExtra(Config.qwertyTextPrefKey(key)));
             }
             for (int digit = 2; digit <= 9; digit++) {
                 config.t9Actions[digit] = Config.validAction(
                         intent.getIntExtra(Config.t9PrefKey(digit), Config.ACTION_NONE));
                 config.t9Labels[digit] = Config.normalizeLabelValue(
                         intent.getStringExtra(Config.t9LabelPrefKey(digit)));
+                config.t9Texts[digit] = Config.normalizeInsertedText(
+                        intent.getStringExtra(Config.t9TextPrefKey(digit)));
             }
             config.rebuildActionMap();
             return config;
@@ -382,11 +497,15 @@ public final class MainHook extends XposedModule {
             for (char key = 'a'; key <= 'z'; key++) {
                 editor.putString(Config.qwertyLabelPrefKey(key),
                         Config.normalizeLabelValue(config.qwertyLabels[key - 'a']));
+                editor.putString(Config.qwertyTextPrefKey(key),
+                        Config.normalizeInsertedText(config.qwertyTexts[key - 'a']));
             }
             for (int digit = 2; digit <= 9; digit++) {
                 editor.putInt(Config.t9PrefKey(digit), config.t9Actions[digit]);
                 editor.putString(Config.t9LabelPrefKey(digit),
                         Config.normalizeLabelValue(config.t9Labels[digit]));
+                editor.putString(Config.t9TextPrefKey(digit),
+                        Config.normalizeInsertedText(config.t9Texts[digit]));
             }
             editor.commit();
         } catch (Throwable throwable) {
@@ -431,12 +550,16 @@ public final class MainHook extends XposedModule {
             for (char key = 'a'; key <= 'z'; key++) {
                 config.qwertyLabels[key - 'a'] = Config.normalizeLabelValue(
                         prefs.getString(Config.qwertyLabelPrefKey(key), ""));
+                config.qwertyTexts[key - 'a'] = Config.normalizeInsertedText(
+                        prefs.getString(Config.qwertyTextPrefKey(key), ""));
             }
             for (int digit = 2; digit <= 9; digit++) {
                 config.t9Actions[digit] = Config.validAction(
                         prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
                 config.t9Labels[digit] = Config.normalizeLabelValue(
                         prefs.getString(Config.t9LabelPrefKey(digit), ""));
+                config.t9Texts[digit] = Config.normalizeInsertedText(
+                        prefs.getString(Config.t9TextPrefKey(digit), ""));
             }
             config.rebuildActionMap();
             cachedConfig = config;
@@ -459,6 +582,11 @@ public final class MainHook extends XposedModule {
 
         View view = (View) target;
         MotionEvent event = (MotionEvent) eventObject;
+
+        // This View.dispatchTouchEvent hook is the same proven chain used by the keyboard
+        // gesture feature. Run the hidden settings detector before filtering to keyboard views.
+        tryHandleEmbeddedSettingsUnlock(view, event);
+
         Class<?> keyboardBase = keyboardBaseClass;
 
         if (keyboardBase == null) {
@@ -1857,7 +1985,10 @@ public final class MainHook extends XposedModule {
             }
 
             boolean success;
-            if (isDocumentAction(action)) {
+            if (action == Config.ACTION_INSERT_TEXT) {
+                boolean t9 = key != null && key.length() == 1 && key.charAt(0) >= '2' && key.charAt(0) <= '9';
+                success = performInsertText(connection, cachedConfig.textFor(key, t9));
+            } else if (isDocumentAction(action)) {
                 success = performDocumentAction(connection, action);
             } else if (isParagraphAction(action)) {
                 success = performParagraphAction(connection, action);
@@ -1874,8 +2005,12 @@ public final class MainHook extends XposedModule {
         }
     }
 
-
-
+    private boolean performInsertText(InputConnection connection, String text) {
+        String value = Config.normalizeInsertedText(text);
+        if (value.isEmpty()) return false;
+        try { connection.finishComposingText(); } catch (Throwable ignored) {}
+        return connection.commitText(value, 1);
+    }
 
     private static boolean isCompoundAction(int action) {
         return action == Config.ACTION_COPY_ALL || action == Config.ACTION_CUT_ALL;

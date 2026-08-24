@@ -39,6 +39,8 @@ final class ConfigSnapshot {
         System.arraycopy(source.t9Actions, 0, target.t9Actions, 0, source.t9Actions.length);
         System.arraycopy(source.qwertyLabels, 0, target.qwertyLabels, 0, source.qwertyLabels.length);
         System.arraycopy(source.t9Labels, 0, target.t9Labels, 0, source.t9Labels.length);
+        System.arraycopy(source.qwertyTexts, 0, target.qwertyTexts, 0, source.qwertyTexts.length);
+        System.arraycopy(source.t9Texts, 0, target.t9Texts, 0, source.t9Texts.length);
         target.rebuildActionMap();
         return target;
     }
@@ -73,11 +75,15 @@ final class ConfigSnapshot {
         for (char key = 'a'; key <= 'z'; key++) {
             intent.putExtra(Config.qwertyLabelPrefKey(key),
                     Config.normalizeLabelValue(config.qwertyLabels[key - 'a']));
+            intent.putExtra(Config.qwertyTextPrefKey(key),
+                    Config.normalizeInsertedText(config.qwertyTexts[key - 'a']));
         }
         for (int digit = 2; digit <= 9; digit++) {
             intent.putExtra(Config.t9PrefKey(digit), config.t9Actions[digit]);
             intent.putExtra(Config.t9LabelPrefKey(digit),
                     Config.normalizeLabelValue(config.t9Labels[digit]));
+            intent.putExtra(Config.t9TextPrefKey(digit),
+                    Config.normalizeInsertedText(config.t9Texts[digit]));
         }
     }
 }

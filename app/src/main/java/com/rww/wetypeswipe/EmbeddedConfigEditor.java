@@ -1,5 +1,7 @@
 package com.rww.wetypeswipe;
 
+import java.util.Arrays;
+
 final class EmbeddedConfigEditor {
     static final int[] QWERTY_ACTIONS = {
             Config.ACTION_SELECT_ALL,
@@ -26,6 +28,9 @@ final class EmbeddedConfigEditor {
 
     static int actionForQwerty(Config config, String key) {
         if (config == null || key == null || key.length() != 1) return Config.ACTION_NONE;
+        int index = key.charAt(0) - 'a';
+        if (index >= 0 && index < config.qwertyTexts.length
+                && !Config.normalizeInsertedText(config.qwertyTexts[index]).isEmpty()) return Config.ACTION_INSERT_TEXT;
         if (config.disabledKeys != null && config.disabledKeys.contains(key)) return Config.ACTION_DISABLE;
         for (int action : QWERTY_ACTIONS) {
             if (key.equals(keyForAction(config, action))) return action;
@@ -38,13 +43,38 @@ final class EmbeddedConfigEditor {
         for (int existing : QWERTY_ACTIONS) {
             if (key.equals(keyForAction(config, existing))) setKeyForAction(config, existing, "");
         }
+        int keyIndex = key.charAt(0) - 'a';
+        if (keyIndex >= 0 && keyIndex < config.qwertyTexts.length) config.qwertyTexts[keyIndex] = "";
         config.disabledKeys = removeKey(config.disabledKeys, key);
-        if (action == Config.ACTION_DISABLE) {
+        if (action == Config.ACTION_INSERT_TEXT) {
+            // Text is assigned by assignQwertyText after the editor dialog returns.
+        } else if (action == Config.ACTION_DISABLE) {
             config.disabledKeys = normalizeKeys((config.disabledKeys == null ? "" : config.disabledKeys) + key);
         } else if (action != Config.ACTION_NONE) {
             setKeyForAction(config, action, key);
         }
         config.rebuildActionMap();
+    }
+
+    static void assignQwertyText(Config config, String key, String text) {
+        assignQwerty(config, key, Config.ACTION_NONE);
+        if (config == null || key == null || key.length() != 1) return;
+        int index = key.charAt(0) - 'a';
+        if (index < 0 || index >= config.qwertyTexts.length) return;
+        config.qwertyTexts[index] = Config.normalizeInsertedText(text);
+        config.rebuildActionMap();
+    }
+
+    static void assignT9Text(Config config, int digit, String text) {
+        if (config == null || digit < 2 || digit > 9) return;
+        config.t9Actions[digit] = Config.ACTION_INSERT_TEXT;
+        config.t9Texts[digit] = Config.normalizeInsertedText(text);
+        config.rebuildActionMap();
+    }
+
+    static void clearT9Text(Config config, int digit) {
+        if (config == null || digit < 2 || digit > 9) return;
+        config.t9Texts[digit] = "";
     }
 
     static void restoreDefaults(Config config) {
@@ -55,6 +85,7 @@ final class EmbeddedConfigEditor {
         config.copy = "c";
         config.paste = "v";
         config.disabledKeys = "";
+        Arrays.fill(config.qwertyTexts, "");
         config.rebuildActionMap();
     }
 
@@ -62,6 +93,7 @@ final class EmbeddedConfigEditor {
         if (config == null) return;
         for (int action : QWERTY_ACTIONS) setKeyForAction(config, action, "");
         config.disabledKeys = "";
+        Arrays.fill(config.qwertyTexts, "");
         config.rebuildActionMap();
     }
 
