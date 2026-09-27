@@ -29,14 +29,14 @@ jobs:
           test "$(git branch --show-current)" = "release/v1.11.7"
           git fetch origin codex/wetype-4.0.0-compat-v1.11.7-test2
 
-          git show origin/codex/wetype-4.0.0-compat-v1.11.7-test2:tools/patch_wetype_4_compat_test.py > /tmp/patch1.py
-          git show origin/codex/wetype-4.0.0-compat-v1.11.7-test2:tools/patch_wetype_4_native_panel_test2.py > /tmp/patch2.py
-          mkdir -p app/src/main/java/com/rww/wetypeswipe app/src/test/java/com/rww/wetypeswipe
+          mkdir -p tools app/src/main/java/com/rww/wetypeswipe app/src/test/java/com/rww/wetypeswipe
+          git show origin/codex/wetype-4.0.0-compat-v1.11.7-test2:tools/patch_wetype_4_compat_test.py > tools/_promote_patch1.py
+          git show origin/codex/wetype-4.0.0-compat-v1.11.7-test2:tools/patch_wetype_4_native_panel_test2.py > tools/_promote_patch2.py
           git show origin/codex/wetype-4.0.0-compat-v1.11.7-test2:app/src/main/java/com/rww/wetypeswipe/ToolbarCarrierLayout.java > app/src/main/java/com/rww/wetypeswipe/ToolbarCarrierLayout.java
           git show origin/codex/wetype-4.0.0-compat-v1.11.7-test2:app/src/test/java/com/rww/wetypeswipe/ToolbarCarrierLayoutTest.java > app/src/test/java/com/rww/wetypeswipe/ToolbarCarrierLayoutTest.java
 
-          python3 /tmp/patch1.py
-          python3 /tmp/patch2.py
+          python3 tools/_promote_patch1.py
+          python3 tools/_promote_patch2.py
 
           sed -i 's/^VERSION_CODE=52$/VERSION_CODE=53/' gradle.properties
           sed -i 's/^VERSION_NAME=1.11.7-test2$/VERSION_NAME=1.11.7/' gradle.properties
@@ -72,6 +72,7 @@ jobs:
           PY
 
           rm -f RELEASE_NOTES_v1.11.6.md
+          rm -f tools/_promote_patch1.py tools/_promote_patch2.py
           rm -f .github/workflows/promote-v1.11.7.yml
 
           grep -q '^VERSION_CODE=53$' gradle.properties
@@ -82,6 +83,8 @@ jobs:
           test -f app/src/test/java/com/rww/wetypeswipe/ToolbarCarrierLayoutTest.java
           test -f RELEASE_NOTES_v1.11.7.md
           test ! -e RELEASE_NOTES_v1.11.6.md
+          test ! -e tools/_promote_patch1.py
+          test ! -e tools/_promote_patch2.py
           test ! -e .github/workflows/promote-v1.11.7.yml
 
       - name: 提交正式源码
