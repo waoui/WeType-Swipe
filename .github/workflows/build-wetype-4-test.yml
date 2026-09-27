@@ -3,11 +3,14 @@ name: 构建微信输入法 4.0.0 兼容测试版
 on:
   push:
     branches:
-      - codex/wetype-4.0.0-compat-v1.11.7-test1
+      - codex/wetype-4.0.0-compat-v1.11.7-test2
     paths:
       - ".github/workflows/build-wetype-4-test.yml"
       - "tools/patch_wetype_4_compat_test.py"
-      - "TEST_NOTES_v1.11.7-test1.md"
+      - "tools/patch_wetype_4_native_panel_test2.py"
+      - "app/src/main/java/com/rww/wetypeswipe/ToolbarCarrierLayout.java"
+      - "app/src/test/java/com/rww/wetypeswipe/ToolbarCarrierLayoutTest.java"
+      - "TEST_NOTES_v1.11.7-test2.md"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +26,7 @@ jobs:
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
       SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
       EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
-      VERSION: 1.11.7-test1
+      VERSION: 1.11.7-test2
 
     steps:
       - name: 检出测试分支
@@ -43,11 +46,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/patch_wetype_4_compat_test.py
-          grep -q '^VERSION_CODE=51$' gradle.properties
-          grep -q '^VERSION_NAME=1.11.7-test1$' gradle.properties
+          python3 tools/patch_wetype_4_native_panel_test2.py
+          grep -q '^VERSION_CODE=52$' gradle.properties
+          grep -q '^VERSION_NAME=1.11.7-test2$' gradle.properties
           grep -q 'WETYPE_4_KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.o"' app/src/main/java/com/rww/wetypeswipe/MainHook.java
-          grep -q 'declaresNoArg(type, "getActionButton")' app/src/main/java/com/rww/wetypeswipe/MainHook.java
-          grep -q 'declaresNoArg(type, "getKeysLayoutInfo")' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'ToolbarCarrierLayout.resolve(holder.getClass())' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'toolbarCarrierDirectInvokeMethod' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'directInvokeMethod.invoke(holder, argument)' app/src/main/java/com/rww/wetypeswipe/MainHook.java
 
       - name: 恢复永久签名证书
         shell: bash
@@ -76,7 +81,7 @@ jobs:
           notes="release/TEST_NOTES_v${VERSION}.md"
 
           cp app/build/outputs/apk/release/app-release.apk "$apk"
-          cp TEST_NOTES_v1.11.7-test1.md "$notes"
+          cp TEST_NOTES_v1.11.7-test2.md "$notes"
 
           apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -x "$apksigner"
@@ -92,7 +97,7 @@ jobs:
           from pathlib import Path
           import zipfile
           root = Path('.')
-          out = Path('release/WeType_Swipe_LSPosed_v1.11.7-test1_source.zip')
+          out = Path('release/WeType_Swipe_LSPosed_v1.11.7-test2_source.zip')
           skip_parts = {'.git', '.gradle', 'build', 'release'}
           with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
               for path in root.rglob('*'):
@@ -102,7 +107,7 @@ jobs:
                       continue
                   if path.name == 'signing.jks':
                       continue
-                  z.write(path, Path('WeType-Swipe-v1.11.7-test1') / path)
+                  z.write(path, Path('WeType-Swipe-v1.11.7-test2') / path)
           PY
 
           (
@@ -113,7 +118,7 @@ jobs:
       - name: 上传测试附件
         uses: actions/upload-artifact@v4
         with:
-          name: WeType-Swipe-v1.11.7-test1-signed
+          name: WeType-Swipe-v1.11.7-test2-signed
           path: release/*
           if-no-files-found: error
           retention-days: 14
