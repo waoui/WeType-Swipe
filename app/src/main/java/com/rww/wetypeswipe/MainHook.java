@@ -53,7 +53,9 @@ import io.github.libxposed.api.XposedModuleInterface;
 public final class MainHook extends XposedModule {
     private static final String TAG = "WeTypeSwipe";
     private static final String TARGET = "com.tencent.wetype";
-    private static final String KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.n";
+    private static final String LEGACY_KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.n";
+    private static final String WETYPE_4_KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.o";
+    private static final String SELF_DRAW_PREFIX = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.";
     private static final int PARAGRAPH_CONTEXT_CHARS = 65_536;
     private static final int NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT = 128;
 
@@ -106,6 +108,7 @@ public final class MainHook extends XposedModule {
     private volatile Field toolbarCarrierCategoryField;
     private volatile Field toolbarCarrierGroupField;
     private volatile Method toolbarCarrierInvokeMethod;
+    private volatile Method toolbarCarrierDirectInvokeMethod;
     private volatile Object toolbarPermanentCategory;
     private volatile WeakReference<View> keyboardHintRootRef = new WeakReference<>(null);
     private volatile WeakReference<TextView> keyboardHintViewRef = new WeakReference<>(null);
@@ -121,7 +124,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.6 entered target package; embedded settings and custom text enabled");
+            logInfo("v1.11.7 entered target package; WeType 4.0.0 keyboard and native-panel compatibility enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -1442,9 +1445,35 @@ public final class MainHook extends XposedModule {
 
     private static Class<?> findKeyboardBase(Class<?> type) {
         for (int i = 0; type != null && i < 12; i++, type = type.getSuperclass()) {
-            if (KEYBOARD_BASE.equals(type.getName())) return type;
+            String name = type.getName();
+            if (LEGACY_KEYBOARD_BASE.equals(name) || WETYPE_4_KEYBOARD_BASE.equals(name)) {
+                return type;
+            }
+            // WeType 4.0.0 changed the obfuscated self-draw base from `n` to `o`.
+            // Keep a structural fallback so future one-letter renames do not disable the
+            // whole module again. Only accept a selfdraw View class that declares both
+            // stable keyboard accessors on that exact class (not inherited by a concrete
+            // QWERTY/T9 subclass), otherwise caching one layout would exclude the others.
+            if (name.startsWith(SELF_DRAW_PREFIX)
+                    && View.class.isAssignableFrom(type)
+                    && declaresNoArg(type, "getActionButton")
+                    && declaresNoArg(type, "getKeysLayoutInfo")) {
+                return type;
+            }
         }
         return null;
+    }
+
+    private static boolean declaresNoArg(Class<?> type, String name) {
+        if (type == null || name == null) return false;
+        try {
+            type.getDeclaredMethod(name);
+            return true;
+        } catch (NoSuchMethodException ignored) {
+            return false;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static boolean isHandwritingContext(View keyboard) {
@@ -2112,6 +2141,7 @@ public final class MainHook extends XposedModule {
             Field categoryField = toolbarCarrierCategoryField;
             Field groupField = toolbarCarrierGroupField;
             Method invokeMethod = toolbarCarrierInvokeMethod;
+            Method directInvokeMethod = toolbarCarrierDirectInvokeMethod;
 
             if (source == null || !source.isAttachedToWindow()
                     || callback == null || holder == null
@@ -2144,7 +2174,16 @@ public final class MainHook extends XposedModule {
 
                 View argument = toolbarCarrierArgumentRef.get();
                 if (argument == null) argument = source;
-                invokeMethod.invoke(callback, argument);
+                if (directInvokeMethod != null) {
+                    // WeType 4.0.0 wraps the click callback in a Main.immediate coroutine.
+                    // Invoke the concrete ViewHolder click handler directly while the
+                    // temporary function/source/group fields are still active.
+                    directInvokeMethod.invoke(holder, argument);
+                    logInfo("toolbar carrier direct handler invoked holder="
+                            + holder.getClass().getName());
+                } else {
+                    invokeMethod.invoke(callback, argument);
+                }
                 return true;
             } catch (Throwable throwable) {
                 clearToolbarCarrierCache();
@@ -2182,14 +2221,17 @@ public final class MainHook extends XposedModule {
         Object holder = readNamedField(callback, "this$0");
         if (source == null || callback == null || holder == null) return false;
 
-        Field functionField = findNamedField(holder.getClass(), "f");
-        if (functionField == null) return false;
-        Field categoryField = findNamedField(holder.getClass(), "g");
-        Field groupField = findNamedField(holder.getClass(), "h");
+        ToolbarCarrierLayout.Fields layout = ToolbarCarrierLayout.resolve(holder.getClass());
+        if (layout == null) return false;
+        Field functionField = layout.function;
+        Field categoryField = layout.category;
+        Field groupField = layout.group;
         Method invokeMethod = findCompatibleInvoke(callback.getClass());
         if (invokeMethod == null) return false;
+        Method directInvokeMethod = layout.weType4Layout
+                ? findMethod(holder.getClass(), "g", new Class<?>[]{View.class})
+                : null;
 
-        Object permanent = categoryField == null ? null : enumConstant(categoryField.getType(), "Permanent");
         Object capturedView = readNamedField(callback, "$this_apply");
         View argument = capturedView instanceof View ? (View) capturedView : source;
 
@@ -2202,7 +2244,12 @@ public final class MainHook extends XposedModule {
         toolbarCarrierCategoryField = categoryField;
         toolbarCarrierGroupField = groupField;
         toolbarCarrierInvokeMethod = invokeMethod;
-        toolbarPermanentCategory = permanent;
+        toolbarCarrierDirectInvokeMethod = directInvokeMethod;
+        toolbarPermanentCategory = layout.permanentCategory;
+        logInfo("toolbar carrier layout function=" + functionField.getName()
+                + " category=" + categoryField.getName()
+                + " group=" + groupField.getName()
+                + " direct=" + (directInvokeMethod != null));
         return true;
     }
 
@@ -2216,6 +2263,7 @@ public final class MainHook extends XposedModule {
         toolbarCarrierCategoryField = null;
         toolbarCarrierGroupField = null;
         toolbarCarrierInvokeMethod = null;
+        toolbarCarrierDirectInvokeMethod = null;
         toolbarPermanentCategory = null;
     }
 
@@ -2276,13 +2324,8 @@ public final class MainHook extends XposedModule {
         String holderClass = holder.getClass().getName();
         if (!holderClass.startsWith("com.tencent.wetype.plugin.hld.toolbar.")) return false;
 
-        Field function = findNamedField(holder.getClass(), "f");
-        Field category = findNamedField(holder.getClass(), "g");
-        Field group = findNamedField(holder.getClass(), "h");
-        return function != null && function.getType() == int.class
-                && category != null
-                && group != null && group.getType() == int.class
-                && findCompatibleInvoke(callback.getClass()) != null;
+        ToolbarCarrierLayout.Fields layout = ToolbarCarrierLayout.resolve(holder.getClass());
+        return layout != null && findCompatibleInvoke(callback.getClass()) != null;
     }
 
     private static Field findNamedField(Class<?> type, String name) {
