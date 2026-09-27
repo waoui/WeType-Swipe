@@ -11,7 +11,7 @@ body:
     id: module-version
     attributes:
       label: 模块版本
-      placeholder: 例如 v1.11.6
+      placeholder: 例如 v1.11.7
     validations:
       required: true
 
@@ -19,7 +19,7 @@ body:
     id: wetype-version
     attributes:
       label: 微信输入法版本
-      placeholder: 例如 3.5.2
+      placeholder: 例如 4.0.0
     validations:
       required: true
 
