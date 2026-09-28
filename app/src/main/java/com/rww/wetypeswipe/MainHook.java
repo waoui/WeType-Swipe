@@ -77,6 +77,11 @@ public final class MainHook extends XposedModule {
     private final ConcurrentHashMap<Object, String> nativeSingleKeyLabelCache = new ConcurrentHashMap<>();
     private volatile long nativeSingleKeyPaintSignature = Long.MIN_VALUE;
     private volatile int lastResolvedNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+    private volatile int liveNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+    private volatile WeakReference<View> runtimeKeyboardRef = new WeakReference<>(null);
+    private volatile KeyboardRuntimeState runtimeKeyboardState;
+    private final ConcurrentHashMap<Class<?>, Boolean> keyboardDrawPreparedClasses = new ConcurrentHashMap<>();
+    private volatile long nativeSingleKeyNextResolveAtMs;
     private volatile Class<?> nativeSingleKeyModelClass;
     private volatile Field nativeSingleKeyDrawRectField;
     private volatile Field nativeSingleKeyParentField;
@@ -120,7 +125,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.9-test2 entered target package; phase-1 refactor + live dark-mode refresh enabled");
+            logInfo("v1.11.9-test3 entered target package; hot-path performance optimizations enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -134,9 +139,13 @@ public final class MainHook extends XposedModule {
                 chain -> captureApplication(chain.getThisObject()));
         hookAfter(Application.class.getDeclaredMethod("onCreate"),
                 chain -> captureApplication(chain.getThisObject()));
+        hookAfter(Application.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
+                chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
 
         hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
                 chain -> captureIme(chain.getThisObject()));
+        hookAfter(InputMethodService.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
+                chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
         hookBefore(InputMethodService.class.getDeclaredMethod("onStartInput", EditorInfo.class, boolean.class),
                 chain -> captureStartInput(chain.getThisObject(), (EditorInfo) chain.getArg(0)));
         hookAfter(InputMethodService.class.getDeclaredMethod("onUpdateSelection",
@@ -202,6 +211,18 @@ public final class MainHook extends XposedModule {
             return;
         }
         ensureConfigSync(app);
+        refreshLiveNightMode(app.getResources().getConfiguration().uiMode, null);
+    }
+
+    private void captureConfiguration(Object object, Configuration configuration) {
+        if (!(object instanceof Context) || configuration == null) return;
+        Context context = (Context) object;
+        try {
+            if (!TARGET.equals(context.getPackageName())) return;
+        } catch (Throwable ignored) {
+            return;
+        }
+        refreshLiveNightMode(configuration.uiMode, null);
     }
 
     private static Activity findActivity(Context context) {
@@ -286,8 +307,11 @@ public final class MainHook extends XposedModule {
         if (previousIme != ime) {
             clearToolbarCarrierCache();
             clearKeyboardHint();
+            runtimeKeyboardRef = new WeakReference<>(null);
+            runtimeKeyboardState = null;
         }
         imeRef = new WeakReference<>(ime);
+        refreshLiveNightMode(ime.getResources().getConfiguration().uiMode, null);
         ensureConfigSync(ime);
         ensureConcreteSelectionHook(ime.getClass());
 
@@ -340,15 +364,15 @@ public final class MainHook extends XposedModule {
 
         View view = (View) target;
         MotionEvent event = (MotionEvent) eventObject;
+        int actionMasked = event.getActionMasked();
 
-        // This View.dispatchTouchEvent hook is the same proven chain used by the keyboard
-        // gesture feature. Run the hidden settings detector before filtering to keyboard views.
-        tryHandleEmbeddedSettingsUnlock(view, event);
+        if (actionMasked == MotionEvent.ACTION_UP) {
+            tryHandleEmbeddedSettingsUnlock(view, event);
+        }
 
         Class<?> keyboardBase = keyboardBaseClass;
-
         if (keyboardBase == null) {
-            if (event.getActionMasked() != MotionEvent.ACTION_DOWN) return chain.proceed();
+            if (actionMasked != MotionEvent.ACTION_DOWN) return chain.proceed();
             keyboardBase = KeyboardCompat.findKeyboardBase(view.getClass());
             if (keyboardBase == null) return chain.proceed();
             keyboardBaseClass = keyboardBase;
@@ -357,39 +381,72 @@ public final class MainHook extends XposedModule {
             return chain.proceed();
         }
 
-        if (KeyboardCompat.isHandwritingContext(view)) {
+        KeyboardRuntimeState runtime = runtimeStateFor(view);
+        if (runtime.handwriting) {
             tracker.clear(view);
-            view.post(() -> hideKeyboardHint(0L));
+            if (actionMasked == MotionEvent.ACTION_DOWN || actionMasked == MotionEvent.ACTION_UP) {
+                view.post(() -> hideKeyboardHint(0L));
+            }
             return chain.proceed();
         }
 
-        ensureKeyboardLabelDrawHook(view.getClass(), view);
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !configBridge.isLoaded()) {
-            ensureConfigSync(view.getContext());
+        if (actionMasked == MotionEvent.ACTION_DOWN) {
+            maybeEnsureNativeSingleKeyDrawHooks(view);
+            ensureKeyboardLabelDrawHook(view.getClass(), view);
+            if (!configBridge.isLoaded()) ensureConfigSync(view.getContext());
         }
         return interceptKeyboardTouch(chain, view, event);
     }
 
-    private synchronized void ensureKeyboardLabelDrawHook(Class<?> keyboardClass, View keyboard) {
-        if (keyboardClass == null || keyboard == null) return;
+    private KeyboardRuntimeState runtimeStateFor(View keyboard) {
+        View cachedView = runtimeKeyboardRef.get();
+        KeyboardRuntimeState cached = runtimeKeyboardState;
+        if (cachedView == keyboard && cached != null) return cached;
+        KeyboardRuntimeState resolved = KeyboardRuntimeState.from(keyboard);
+        runtimeKeyboardRef = new WeakReference<>(keyboard);
+        runtimeKeyboardState = resolved;
+        return resolved;
+    }
+
+    private void maybeEnsureNativeSingleKeyDrawHooks(View keyboard) {
+        if (nativeSingleKeyHooksResolved || keyboard == null) return;
+        long now = SystemClock.uptimeMillis();
+        if (now < nativeSingleKeyNextResolveAtMs) return;
+        nativeSingleKeyNextResolveAtMs = now + 2000L;
         ensureNativeSingleKeyDrawHooks(keyboard);
-        Method drawMethod = findKeyboardDrawMethod(keyboardClass, "onDraw");
-        if (drawMethod == null) drawMethod = findKeyboardDrawMethod(keyboardClass, "dispatchDraw");
-        if (drawMethod == null || keyboardLabelHookedMethods.putIfAbsent(drawMethod, Boolean.TRUE) != null) return;
-        try {
-            hookAfter(drawMethod, chain -> {
-                Object target = chain.getThisObject();
-                Object canvas = chain.getArg(0);
-                if (target instanceof View && canvas instanceof Canvas) {
-                    drawKeyboardFunctionLabels((View) target, (Canvas) canvas);
-                }
-            });
-            keyboard.postInvalidate();
-            logInfo("keyboard function-label draw hook installed for "
-                    + drawMethod.getDeclaringClass().getName() + '#' + drawMethod.getName());
-        } catch (Throwable throwable) {
-            keyboardLabelHookedMethods.remove(drawMethod);
-            logError("keyboard function-label draw hook failed", throwable);
+    }
+
+    private void ensureKeyboardLabelDrawHook(Class<?> keyboardClass, View keyboard) {
+        if (keyboardClass == null || keyboard == null
+                || keyboardDrawPreparedClasses.containsKey(keyboardClass)) return;
+        synchronized (this) {
+            if (keyboardDrawPreparedClasses.containsKey(keyboardClass)) return;
+            Method drawMethod = findKeyboardDrawMethod(keyboardClass, "onDraw");
+            if (drawMethod == null) drawMethod = findKeyboardDrawMethod(keyboardClass, "dispatchDraw");
+            if (drawMethod == null) {
+                keyboardDrawPreparedClasses.put(keyboardClass, Boolean.TRUE);
+                return;
+            }
+            if (keyboardLabelHookedMethods.putIfAbsent(drawMethod, Boolean.TRUE) != null) {
+                keyboardDrawPreparedClasses.put(keyboardClass, Boolean.TRUE);
+                return;
+            }
+            try {
+                hookAfter(drawMethod, chain -> {
+                    Object target = chain.getThisObject();
+                    Object canvas = chain.getArg(0);
+                    if (target instanceof View && canvas instanceof Canvas) {
+                        drawKeyboardFunctionLabels((View) target, (Canvas) canvas);
+                    }
+                });
+                keyboardDrawPreparedClasses.put(keyboardClass, Boolean.TRUE);
+                keyboard.postInvalidate();
+                logInfo("keyboard function-label draw hook installed for "
+                        + drawMethod.getDeclaringClass().getName() + '#' + drawMethod.getName());
+            } catch (Throwable throwable) {
+                keyboardLabelHookedMethods.remove(drawMethod);
+                logError("keyboard function-label draw hook failed", throwable);
+            }
         }
     }
 
@@ -446,7 +503,7 @@ public final class MainHook extends XposedModule {
         View keyboard = nativeSingleKeyParent(model);
         Rect drawRect = nativeSingleKeyDrawRect(model);
         if (keyboard == null || drawRect == null || drawRect.isEmpty()) return;
-        if (KeyboardCompat.isHandwritingContext(keyboard)) {
+        if (runtimeStateFor(keyboard).handwriting) {
             nativeSingleKeyLabelCache.remove(model);
             return;
         }
@@ -462,8 +519,6 @@ public final class MainHook extends XposedModule {
         }
 
         if (currentEditorPassword) return;
-        Config displayConfig = configBridge.current();
-        if (displayConfig == null || !displayConfig.showKeyLabels) return;
         Config config = configBridge.current();
         if (config == null || !config.hasAnyBinding() || !config.showKeyLabels) return;
 
@@ -581,22 +636,16 @@ public final class MainHook extends XposedModule {
 
     private void drawKeyboardFunctionLabels(View keyboard, Canvas canvas) {
         if (keyboard == null || canvas == null || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
-        if (KeyboardCompat.isHandwritingContext(keyboard)) return;
+        KeyboardRuntimeState runtime = runtimeStateFor(keyboard);
+        if (runtime.handwriting || currentEditorPassword) return;
         Config config = configBridge.current();
-        if (config == null || !config.hasAnyBinding()) return;
+        if (config == null || !config.hasAnyBinding() || !config.showKeyLabels) return;
         try {
-            InputMethodService ime = imeRef.get();
-            EditorInfo editorInfo = ime == null ? null : ime.getCurrentInputEditorInfo();
-            if (editorInfo != null && isPassword(editorInfo.inputType)) return;
-
-            ensureNativeSingleKeyDrawHooks(keyboard);
             if (nativeSingleKeyActiveKeyboardRef.get() == keyboard) return;
-
-            String name = keyboard.getClass().getName().toLowerCase(Locale.ROOT);
             prepareKeyboardLabelPaint(keyboard);
-            if (name.contains("t9") || name.contains("nine")) {
+            if (runtime.mode == KeyboardRuntimeState.Mode.T9) {
                 drawT9FunctionLabels(keyboard, canvas, config);
-            } else if (name.contains("qwerty") || name.contains("wubi") || name.contains("pinyin")) {
+            } else if (runtime.mode == KeyboardRuntimeState.Mode.QWERTY) {
                 ensureKeyboardLabelGeometry(keyboard);
                 drawQwertyFunctionLabels(keyboard, canvas, config);
             }
@@ -606,50 +655,48 @@ public final class MainHook extends XposedModule {
     }
 
     private int resolveLiveNightMode(View keyboard) {
+        int cached = liveNightMode;
+        if (cached == Configuration.UI_MODE_NIGHT_NO
+                || cached == Configuration.UI_MODE_NIGHT_YES) return cached;
         if (keyboard == null) return Configuration.UI_MODE_NIGHT_UNDEFINED;
 
         int keyboardUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
         int applicationUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
         int imeUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
-
         try {
             keyboardUiMode = keyboard.getResources().getConfiguration().uiMode;
-        } catch (Throwable ignored) {}
-
-        try {
             Context application = keyboard.getContext().getApplicationContext();
-            if (application != null) {
-                applicationUiMode = application.getResources().getConfiguration().uiMode;
-            }
+            if (application != null) applicationUiMode = application.getResources().getConfiguration().uiMode;
         } catch (Throwable ignored) {}
-
         InputMethodService ime = imeRef.get();
         if (ime != null) {
-            try {
-                Context application = ime.getApplicationContext();
-                if (application != null) {
-                    applicationUiMode = application.getResources().getConfiguration().uiMode;
-                }
-            } catch (Throwable ignored) {}
-            try {
-                imeUiMode = ime.getResources().getConfiguration().uiMode;
-            } catch (Throwable ignored) {}
+            try { imeUiMode = ime.getResources().getConfiguration().uiMode; } catch (Throwable ignored) {}
         }
-
-        int resolved = KeyboardThemeState.resolveNightMode(
-                keyboardUiMode, applicationUiMode, imeUiMode);
-        int previous = lastResolvedNightMode;
-        if (resolved != previous) {
-            lastResolvedNightMode = resolved;
-            nativeSingleKeyPaintSignature = Long.MIN_VALUE;
-            View activeKeyboard = nativeSingleKeyActiveKeyboardRef.get();
-            if (activeKeyboard != null && activeKeyboard != keyboard) activeKeyboard.postInvalidate();
-            keyboard.postInvalidate();
-            if (previous != Configuration.UI_MODE_NIGHT_UNDEFINED) {
-                logInfo("keyboard label theme refreshed: " + previous + " -> " + resolved);
-            }
-        }
+        int resolved = KeyboardThemeState.resolveNightMode(keyboardUiMode, applicationUiMode, imeUiMode);
+        refreshLiveNightMode(resolved, keyboard);
         return resolved;
+    }
+
+    private void refreshLiveNightMode(int uiMode, View sourceKeyboard) {
+        int resolved = KeyboardThemeState.resolveNightMode(
+                Configuration.UI_MODE_NIGHT_UNDEFINED, uiMode, Configuration.UI_MODE_NIGHT_UNDEFINED);
+        if (resolved != Configuration.UI_MODE_NIGHT_NO
+                && resolved != Configuration.UI_MODE_NIGHT_YES) return;
+        int previous = liveNightMode;
+        if (previous == resolved) return;
+        liveNightMode = resolved;
+        lastResolvedNightMode = resolved;
+        nativeSingleKeyPaintSignature = Long.MIN_VALUE;
+        View active = nativeSingleKeyActiveKeyboardRef.get();
+        if (active != null) active.postInvalidate();
+        View runtime = runtimeKeyboardRef.get();
+        if (runtime != null && runtime != active) runtime.postInvalidate();
+        if (sourceKeyboard != null && sourceKeyboard != active && sourceKeyboard != runtime) {
+            sourceKeyboard.postInvalidate();
+        }
+        if (previous != Configuration.UI_MODE_NIGHT_UNDEFINED) {
+            logInfo("keyboard label theme refreshed: " + previous + " -> " + resolved);
+        }
     }
 
     private void prepareKeyboardLabelPaint(View keyboard) {
