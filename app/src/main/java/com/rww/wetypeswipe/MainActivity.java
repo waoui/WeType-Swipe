@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -120,11 +121,19 @@ public final class MainActivity extends Activity {
         content.setPadding(dp(12), dp(12), dp(12), dp(22));
         scroll.addView(content);
 
-        content.addView(buildQwertyCard());
-        content.addView(buildT9Card());
-        content.addView(buildGestureCard());
-        content.addView(buildGeneralCard());
+        View qwertyPage = buildQwertyCard();
+        View t9Page = buildT9Card();
+        LinearLayout optionsPage = vertical();
+        optionsPage.addView(buildGestureCard());
+        optionsPage.addView(buildGeneralCard());
+        content.addView(qwertyPage);
+        content.addView(t9Page);
+        content.addView(optionsPage, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        page.addView(SettingsTabs.create(this, scroll, qwertyPage, t9Page, optionsPage),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         page.addView(buildSaveBar(), new LinearLayout.LayoutParams(
@@ -152,14 +161,29 @@ public final class MainActivity extends Activity {
 
     private View buildHeader() {
         LinearLayout header = vertical();
-        header.setPadding(dp(18), dp(14), dp(18), dp(14));
+        boolean compact = getResources().getConfiguration().screenHeightDp < 460;
+        header.setPadding(dp(18), dp(compact ? 8 : 13), dp(18), dp(compact ? 8 : 15));
         header.setBackgroundColor(Color.WHITE);
 
-        TextView title = text("微信输入法下滑快捷键", 21, COLOR_TEXT);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(title);
+        TextView eyebrow = text("微信输入法 · LSPosed", 12, COLOR_ACCENT);
+        eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
+        eyebrow.setVisibility(compact ? View.GONE : View.VISIBLE);
+        header.addView(eyebrow);
 
-        TextView version = text("v1.11.9-test2 · 架构重构测试", 13, COLOR_SECONDARY);
+        TextView title = text("下滑快捷键", compact ? 20 : 24, COLOR_TEXT);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams titleParams = wrap();
+        titleParams.topMargin = dp(3);
+        header.addView(title, titleParams);
+
+        String versionName = "当前安装版本";
+        try {
+            versionName = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // Package metadata can be unavailable during preview; keep the header usable.
+        }
+        TextView version = text(versionName + " · 修改后点击底部保存", 12, COLOR_SECONDARY);
+        version.setVisibility(compact ? View.GONE : View.VISIBLE);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -204,10 +228,10 @@ public final class MainActivity extends Activity {
 
         TextView defaults = smallAction("恢复默认 Z/X/C/V", false);
         defaults.setOnClickListener(v -> restoreQwertyDefaults());
-        tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
         TextView clear = smallAction("清空 26 键", true);
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         clearParams.leftMargin = dp(8);
         tools.addView(clear, clearParams);
         clear.setOnClickListener(v -> confirmClearQwerty());
@@ -235,9 +259,10 @@ public final class MainActivity extends Activity {
 
         TextView actionView = text("—", 9, COLOR_SECONDARY);
         actionView.setGravity(Gravity.CENTER);
-        actionView.setMaxLines(1);
         actionView.setSingleLine(true);
-        LinearLayout.LayoutParams actionParams = wrap();
+        actionView.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actionParams.topMargin = dp(3);
         key.addView(actionView, actionParams);
 
@@ -285,7 +310,7 @@ public final class MainActivity extends Activity {
         tools.setPadding(dp(12), dp(10), dp(12), dp(12));
         TextView clear = smallAction("清空九宫格映射", true);
         tools.addView(clear, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(42)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         clear.setOnClickListener(v -> confirmClearT9());
         card.addView(tools);
         return card;
@@ -317,9 +342,10 @@ public final class MainActivity extends Activity {
         if (digit >= 2 && digit <= 9) {
             TextView action = text("—", 10, COLOR_SECONDARY);
             action.setGravity(Gravity.CENTER);
-            action.setMaxLines(1);
             action.setSingleLine(true);
-            LinearLayout.LayoutParams actionParams = wrap();
+            action.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             actionParams.topMargin = dp(2);
             key.addView(action, actionParams);
             t9KeyViews[digit] = key;
@@ -390,8 +416,9 @@ public final class MainActivity extends Activity {
         showKeyLabels.setTextColor(COLOR_TEXT);
         showKeyLabels.setPadding(dp(12), dp(6), dp(12), dp(6));
         showKeyLabels.setChecked(prefs.getBoolean(Config.KEY_SHOW_KEY_LABELS, true));
+        showKeyLabels.setMinHeight(dp(54));
         card.addView(showKeyLabels, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(divider());
 
         showTriggerHint = new CheckBox(this);
@@ -400,8 +427,9 @@ public final class MainActivity extends Activity {
         showTriggerHint.setTextColor(COLOR_TEXT);
         showTriggerHint.setPadding(dp(12), dp(6), dp(12), dp(6));
         showTriggerHint.setChecked(prefs.getBoolean(Config.KEY_SHOW_TRIGGER_HINT, true));
+        showTriggerHint.setMinHeight(dp(54));
         card.addView(showTriggerHint, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView displayNote = text("关闭后只隐藏提示，不影响下滑功能。", 12, COLOR_SECONDARY);
         displayNote.setPadding(dp(18), 0, dp(18), dp(12));
@@ -414,8 +442,9 @@ public final class MainActivity extends Activity {
         vibration.setTextColor(COLOR_TEXT);
         vibration.setPadding(dp(12), dp(6), dp(12), dp(6));
         vibration.setChecked(prefs.getBoolean(Config.KEY_VIBRATION, true));
+        vibration.setMinHeight(dp(54));
         card.addView(vibration, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         card.addView(divider());
 
@@ -425,8 +454,9 @@ public final class MainActivity extends Activity {
         hideIcon.setTextColor(COLOR_TEXT);
         hideIcon.setPadding(dp(12), dp(6), dp(12), dp(6));
         hideIcon.setChecked(isLauncherIconHidden());
+        hideIcon.setMinHeight(dp(54));
         card.addView(hideIcon, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView note = text("隐藏后可从 LSPosed 的模块设置页面重新进入。", 12, COLOR_SECONDARY);
         note.setPadding(dp(18), 0, dp(18), dp(14));
@@ -829,6 +859,8 @@ public final class MainActivity extends Activity {
 
         int action = actionForQwertyKey(String.valueOf(letter));
         actionView.setText(previewLabel(qwertyCustomLabels[index], action));
+        keyView.setContentDescription(Character.toUpperCase(letter) + " 键，下滑："
+                + Config.actionName(action) + "。点击修改，长按设置标签");
         if (action == Config.ACTION_DISABLE) {
             actionView.setTextColor(COLOR_DANGER);
             keyView.setBackground(rounded(COLOR_DANGER_SOFT, 9, 1, Color.rgb(245, 190, 190)));
@@ -845,6 +877,8 @@ public final class MainActivity extends Activity {
         if (t9ActionViews[digit] == null || t9KeyViews[digit] == null) return;
         int action = t9Actions[digit];
         t9ActionViews[digit].setText(previewLabel(t9CustomLabels[digit], action));
+        t9KeyViews[digit].setContentDescription(digit + " 键，下滑："
+                + Config.actionName(action) + "。点击修改，长按设置标签");
         if (action == Config.ACTION_DISABLE) {
             t9ActionViews[digit].setTextColor(COLOR_DANGER);
             t9KeyViews[digit].setBackground(

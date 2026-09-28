@@ -6,8 +6,10 @@ import android.app.Dialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.text.InputFilter;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -75,8 +77,11 @@ final class EmbeddedSettingsUi {
             Window window = dialog.getWindow();
             if (window != null) {
                 window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+                if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(true);
                 window.setStatusBarColor(Color.WHITE);
                 window.setNavigationBarColor(Color.WHITE);
+                window.getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
             }
         });
         dialog.show();
@@ -94,11 +99,17 @@ final class EmbeddedSettingsUi {
         scroll.setFillViewport(true);
         LinearLayout content = vertical();
         content.setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 22));
-        content.addView(buildQwertyCard());
-        content.addView(buildT9Card());
-        content.addView(buildGestureCard());
-        content.addView(buildGeneralCard());
+        View qwertyPage = buildQwertyCard();
+        View t9Page = buildT9Card();
+        LinearLayout optionsPage = vertical();
+        optionsPage.addView(buildGestureCard());
+        optionsPage.addView(buildGeneralCard());
+        content.addView(qwertyPage);
+        content.addView(t9Page);
+        content.addView(optionsPage, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         scroll.addView(content);
+        page.addView(SettingsTabs.create(activity, scroll, qwertyPage, t9Page, optionsPage));
         page.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         page.addView(buildSaveBar());
         return page;
@@ -106,15 +117,24 @@ final class EmbeddedSettingsUi {
 
     private View buildHeader() {
         LinearLayout header = horizontal();
+        boolean compact = activity.getResources().getConfiguration().screenHeightDp < 460;
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(activity, 18), dp(activity, 14), dp(activity, 12), dp(activity, 14));
+        header.setPadding(dp(activity, 18), dp(activity, compact ? 8 : 13),
+                dp(activity, 12), dp(activity, compact ? 8 : 15));
         header.setBackgroundColor(Color.WHITE);
 
         LinearLayout labels = vertical();
-        TextView title = text(activity, "微信输入法下滑快捷键", 21, TEXT);
+        TextView eyebrow = text(activity, "微信输入法 · 内置模块设置", 12, ACCENT);
+        eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
+        eyebrow.setVisibility(compact ? View.GONE : View.VISIBLE);
+        labels.addView(eyebrow);
+        TextView title = text(activity, "下滑快捷键", compact ? 20 : 24, TEXT);
         title.setTypeface(Typeface.DEFAULT_BOLD);
-        labels.addView(title);
-        TextView version = text(activity, "v1.11.9-test2 · 架构重构测试", 13, SECONDARY);
+        LinearLayout.LayoutParams titleParams = wrap();
+        titleParams.topMargin = dp(activity, 3);
+        labels.addView(title, titleParams);
+        TextView version = text(activity, "修改后点击底部保存并应用", 12, SECONDARY);
+        version.setVisibility(compact ? View.GONE : View.VISIBLE);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(activity, 4);
         labels.addView(version, versionParams);
@@ -127,7 +147,7 @@ final class EmbeddedSettingsUi {
         close.setBackground(rounded(ACCENT_SOFT, dp(activity, 10), 0, 0));
         close.setOnClickListener(v -> dialog.dismiss());
         header.addView(close, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 42)));
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 48)));
         return header;
     }
 
@@ -166,9 +186,9 @@ final class EmbeddedSettingsUi {
             refreshQwerty();
             Toast.makeText(activity, "已恢复默认 Z/X/C/V", Toast.LENGTH_SHORT).show();
         });
-        tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 42), 1f));
+        tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 48), 1f));
         TextView clear = smallAction("清空 26 键", true);
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 42), 1f);
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 48), 1f);
         clearParams.leftMargin = dp(activity, 8);
         tools.addView(clear, clearParams);
         clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
@@ -195,9 +215,10 @@ final class EmbeddedSettingsUi {
         key.addView(name);
         TextView action = text(activity, "—", 9, SECONDARY);
         action.setGravity(Gravity.CENTER);
-        action.setMaxLines(1);
         action.setSingleLine(true);
-        LinearLayout.LayoutParams actionParams = wrap();
+        action.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actionParams.topMargin = dp(activity, 3);
         key.addView(action, actionParams);
         qwertyKeyViews[index] = key;
@@ -236,7 +257,7 @@ final class EmbeddedSettingsUi {
         tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
         TextView clear = smallAction("清空九宫格映射", true);
         tools.addView(clear, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 42)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)));
         clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
                 .setTitle("清空九宫格映射？")
                 .setNegativeButton("取消", null)
@@ -262,9 +283,10 @@ final class EmbeddedSettingsUi {
         if (digit >= 2 && digit <= 9) {
             TextView action = text(activity, "—", 10, SECONDARY);
             action.setGravity(Gravity.CENTER);
-            action.setMaxLines(1);
             action.setSingleLine(true);
-            LinearLayout.LayoutParams actionParams = wrap();
+            action.setEllipsize(TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             actionParams.topMargin = dp(activity, 2);
             key.addView(action, actionParams);
             t9KeyViews[digit] = key;
@@ -326,21 +348,24 @@ final class EmbeddedSettingsUi {
     private View buildGeneralCard() {
         LinearLayout card = createCard("通用设置", null, false);
         showLabels = checkbox("显示按键底部功能文字", config.showKeyLabels);
+        showLabels.setMinHeight(dp(activity, 54));
         card.addView(showLabels, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(divider());
 
         showHint = checkbox("显示下滑触发提示", config.showTriggerHint);
+        showHint.setMinHeight(dp(activity, 54));
         card.addView(showHint, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         TextView displayNote = text(activity, "关闭后只隐藏提示，不影响下滑功能。", 12, SECONDARY);
         displayNote.setPadding(dp(activity, 18), 0, dp(activity, 18), dp(activity, 12));
         card.addView(displayNote);
         card.addView(divider());
 
         vibration = checkbox("触发快捷操作时额外震动", config.vibration);
+        vibration.setMinHeight(dp(activity, 54));
         card.addView(vibration, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 54)));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(divider());
 
         TextView embedded = text(activity, "内置模块设置入口：关于页面连续点击图标 5 次。", 12, SECONDARY);
@@ -544,6 +569,8 @@ final class EmbeddedSettingsUi {
         if (view == null || keyView == null) return;
         int action = EmbeddedConfigEditor.actionForQwerty(config, String.valueOf(letter));
         view.setText(previewLabel(config.qwertyLabels[index], action));
+        keyView.setContentDescription(Character.toUpperCase(letter) + " 键，下滑："
+                + Config.actionName(action) + "。点击修改，长按设置标签");
         if (action == Config.ACTION_DISABLE) {
             view.setTextColor(DANGER);
             keyView.setBackground(rounded(DANGER_SOFT, dp(activity, 9), Color.rgb(245, 190, 190), 1));
@@ -562,6 +589,8 @@ final class EmbeddedSettingsUi {
         if (view == null || keyView == null) return;
         int action = Config.validAction(config.t9Actions[digit]);
         view.setText(previewLabel(config.t9Labels[digit], action));
+        keyView.setContentDescription(digit + " 键，下滑："
+                + Config.actionName(action) + "。点击修改，长按设置标签");
         if (action == Config.ACTION_DISABLE) {
             view.setTextColor(DANGER);
             keyView.setBackground(rounded(DANGER_SOFT, dp(activity, 12), Color.rgb(245, 190, 190), 1));
