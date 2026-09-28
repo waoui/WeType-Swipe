@@ -1,0 +1,138 @@
+name: 性能优化 test3 构建
+
+on:
+  push:
+    branches:
+      - codex/perf-v1.11.9-test3-build
+    paths:
+      - ".github/workflows/build-perf-test3.yml"
+      - "tools/apply_perf_test3.py"
+      - "tools/perf_test3_plan.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TARGET_BRANCH: codex/perf-v1.11.9-test3
+      SIGNING_STORE_FILE: ${{ github.workspace }}/signing.jks
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      EXPECTED_CERT_SHA256: 1082df3bac441e9bd020ce640d66924de6c7dfb70836b262743e15777863c93a
+      VERSION: 1.11.9-test3
+
+    steps:
+      - name: 检出构建分支
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 配置 Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 应用性能优化补丁
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/apply_perf_test3.py
+          grep -q '^VERSION_CODE=58$' gradle.properties
+          grep -q '^VERSION_NAME=1.11.9-test3$' gradle.properties
+          grep -q 'KeyboardRuntimeState runtime = runtimeStateFor(view)' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'nativeSingleKeyNextResolveAtMs = now + 2000L' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'onConfigurationChanged' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+
+      - name: 恢复永久签名证书
+        shell: bash
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -n "$SIGNING_KEY_BASE64"
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 --decode > "$SIGNING_STORE_FILE"
+
+      - name: 单元测试、Lint 与 Release 构建
+        shell: bash
+        run: ./gradlew --no-daemon --stacktrace clean testDebugUnitTest lintRelease assembleRelease
+
+      - name: 校验永久签名 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          apk="release/WeType_Swipe_LSPosed_v${VERSION}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          verification="$($apksigner verify --verbose --print-certs "$apk")"
+          printf '%s\n' "$verification"
+          normalized="$(printf '%s' "$verification" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          case "$normalized" in
+            *"$EXPECTED_CERT_SHA256"*) ;;
+            *) echo "Unexpected signing certificate" >&2; exit 1 ;;
+          esac
+
+      - name: 固化干净 test3 源码
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          rm -rf /tmp/wetype-test3
+          git worktree add /tmp/wetype-test3 "origin/$TARGET_BRANCH"
+          mkdir -p /tmp/wetype-test3/tools
+          cp tools/apply_perf_test3.py /tmp/wetype-test3/tools/apply_perf_test3.py
+          (
+            cd /tmp/wetype-test3
+            python3 tools/apply_perf_test3.py
+            rm -f tools/apply_perf_test3.py
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app gradle.properties TEST_NOTES_v1.11.9-test3.md
+            git commit -m "优化键盘触摸与绘制热路径（v1.11.9-test3）"
+            git push origin "HEAD:$TARGET_BRANCH"
+          )
+
+      - name: 整理测试附件
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp TEST_NOTES_v1.11.9-test3.md release/
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          root = Path('/tmp/wetype-test3')
+          out = Path('release/WeType_Swipe_LSPosed_v1.11.9-test3_source.zip')
+          with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
+              for p in root.rglob('*'):
+                  if not p.is_file() or '.git' in p.parts or 'build' in p.parts or '.gradle' in p.parts:
+                      continue
+                  z.write(p, Path('WeType-Swipe-v1.11.9-test3') / p.relative_to(root))
+          PY
+          (
+            cd release
+            sha256sum WeType_Swipe_LSPosed_v1.11.9-test3.apk \
+              WeType_Swipe_LSPosed_v1.11.9-test3_source.zip \
+              TEST_NOTES_v1.11.9-test3.md > WeType_Swipe_v1.11.9-test3_SHA256SUMS.txt
+          )
+
+      - name: 上传测试附件
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeType-Swipe-v1.11.9-test3-perf-signed
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 清理签名文件
+        if: always()
+        shell: bash
+        run: rm -f "$SIGNING_STORE_FILE"
