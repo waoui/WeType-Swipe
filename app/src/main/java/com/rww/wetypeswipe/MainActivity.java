@@ -64,14 +64,18 @@ public final class MainActivity extends Activity {
             Config.ACTION_DOCUMENT_START,
             Config.ACTION_DOCUMENT_END,
             Config.ACTION_SELECT_TO_DOCUMENT_START,
-            Config.ACTION_SELECT_TO_DOCUMENT_END
+            Config.ACTION_SELECT_TO_DOCUMENT_END,
+            Config.ACTION_NEXT_INPUT_METHOD,
+            Config.ACTION_PREVIOUS_INPUT_METHOD,
+            Config.ACTION_SHOW_INPUT_METHOD_PICKER
     };
 
     private static final String[] QWERTY_LABELS = {
             "全选", "剪切", "复制", "粘贴", "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
             "剪贴板", "快捷发送", "撤销", "重做",
-            "文首", "文尾", "选至文首", "选至文尾"
+            "文首", "文尾", "选至文首", "选至文尾",
+            "下一个输入法", "上一个输入法", "选择输入法"
     };
 
     private static final String[] QWERTY_ROWS = {
@@ -184,7 +188,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.6 · 新增内置设置与指定内容", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.8 · 系统输入法切换", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -785,6 +789,9 @@ public final class MainActivity extends Activity {
         qwertyKeys[15] = normalizedKey(prefs.getString(Config.KEY_DOCUMENT_END, ""));
         qwertyKeys[16] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_START, ""));
         qwertyKeys[17] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_END, ""));
+        qwertyKeys[18] = normalizedKey(prefs.getString(Config.KEY_NEXT_INPUT_METHOD, ""));
+        qwertyKeys[19] = normalizedKey(prefs.getString(Config.KEY_PREVIOUS_INPUT_METHOD, ""));
+        qwertyKeys[20] = normalizedKey(prefs.getString(Config.KEY_SHOW_INPUT_METHOD_PICKER, ""));
         disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
         for (char key = 'a'; key <= 'z'; key++) {
             qwertyCustomLabels[key - 'a'] = Config.normalizeLabelValue(
@@ -838,6 +845,9 @@ public final class MainActivity extends Activity {
                 .putString(Config.KEY_DOCUMENT_END, qwertyKeys[15])
                 .putString(Config.KEY_SELECT_TO_DOCUMENT_START, qwertyKeys[16])
                 .putString(Config.KEY_SELECT_TO_DOCUMENT_END, qwertyKeys[17])
+                .putString(Config.KEY_NEXT_INPUT_METHOD, qwertyKeys[18])
+                .putString(Config.KEY_PREVIOUS_INPUT_METHOD, qwertyKeys[19])
+                .putString(Config.KEY_SHOW_INPUT_METHOD_PICKER, qwertyKeys[20])
                 .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
                 .remove("text_start")
                 .remove("text_end")
@@ -889,6 +899,9 @@ public final class MainActivity extends Activity {
         changed.putExtra(Config.KEY_DOCUMENT_END, qwertyKeys[15]);
         changed.putExtra(Config.KEY_SELECT_TO_DOCUMENT_START, qwertyKeys[16]);
         changed.putExtra(Config.KEY_SELECT_TO_DOCUMENT_END, qwertyKeys[17]);
+        changed.putExtra(Config.KEY_NEXT_INPUT_METHOD, qwertyKeys[18]);
+        changed.putExtra(Config.KEY_PREVIOUS_INPUT_METHOD, qwertyKeys[19]);
+        changed.putExtra(Config.KEY_SHOW_INPUT_METHOD_PICKER, qwertyKeys[20]);
         changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
         changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
         changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
@@ -991,6 +1004,9 @@ public final class MainActivity extends Activity {
             case Config.ACTION_SELECT_TO_DOCUMENT_START: return "选文首";
             case Config.ACTION_SELECT_TO_DOCUMENT_END: return "选文尾";
             case Config.ACTION_INSERT_TEXT: return "文本";
+            case Config.ACTION_NEXT_INPUT_METHOD: return "下个输入";
+            case Config.ACTION_PREVIOUS_INPUT_METHOD: return "上个输入";
+            case Config.ACTION_SHOW_INPUT_METHOD_PICKER: return "选输入法";
             default: return "—";
         }
     }

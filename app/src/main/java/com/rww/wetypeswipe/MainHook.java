@@ -32,6 +32,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
 import android.view.inputmethod.SurroundingText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
@@ -124,7 +125,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.7 entered target package; WeType 4.0.0 keyboard and native-panel compatibility enabled");
+            logInfo("v1.11.8 entered target package; system input-method actions enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -420,6 +421,9 @@ public final class MainHook extends XposedModule {
             config.openQuickPhrase = intent.getStringExtra(Config.KEY_OPEN_QUICK_PHRASE);
             config.undo = intent.getStringExtra(Config.KEY_UNDO);
             config.redo = intent.getStringExtra(Config.KEY_REDO);
+            config.nextInputMethod = intent.getStringExtra(Config.KEY_NEXT_INPUT_METHOD);
+            config.previousInputMethod = intent.getStringExtra(Config.KEY_PREVIOUS_INPUT_METHOD);
+            config.showInputMethodPicker = intent.getStringExtra(Config.KEY_SHOW_INPUT_METHOD_PICKER);
             config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);
             if (config.selectAll == null) config.selectAll = "z";
             if (config.cut == null) config.cut = "x";
@@ -439,6 +443,9 @@ public final class MainHook extends XposedModule {
             if (config.openQuickPhrase == null) config.openQuickPhrase = "";
             if (config.undo == null) config.undo = "";
             if (config.redo == null) config.redo = "";
+            if (config.nextInputMethod == null) config.nextInputMethod = "";
+            if (config.previousInputMethod == null) config.previousInputMethod = "";
+            if (config.showInputMethodPicker == null) config.showInputMethodPicker = "";
             if (config.disabledKeys == null) config.disabledKeys = "";
             config.thresholdDp = clamp(intent.getIntExtra(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(intent.getIntExtra(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -490,6 +497,9 @@ public final class MainHook extends XposedModule {
                     .putString(Config.KEY_OPEN_QUICK_PHRASE, config.openQuickPhrase)
                     .putString(Config.KEY_UNDO, config.undo)
                     .putString(Config.KEY_REDO, config.redo)
+                    .putString(Config.KEY_NEXT_INPUT_METHOD, config.nextInputMethod)
+                    .putString(Config.KEY_PREVIOUS_INPUT_METHOD, config.previousInputMethod)
+                    .putString(Config.KEY_SHOW_INPUT_METHOD_PICKER, config.showInputMethodPicker)
                     .putString(Config.KEY_DISABLED_KEYS, config.disabledKeys)
                     .putInt(Config.KEY_THRESHOLD, config.thresholdDp)
                     .putInt(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp)
@@ -543,6 +553,9 @@ public final class MainHook extends XposedModule {
             config.openQuickPhrase = prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, "");
             config.undo = prefs.getString(Config.KEY_UNDO, "");
             config.redo = prefs.getString(Config.KEY_REDO, "");
+            config.nextInputMethod = prefs.getString(Config.KEY_NEXT_INPUT_METHOD, "");
+            config.previousInputMethod = prefs.getString(Config.KEY_PREVIOUS_INPUT_METHOD, "");
+            config.showInputMethodPicker = prefs.getString(Config.KEY_SHOW_INPUT_METHOD_PICKER, "");
             config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");
             config.thresholdDp = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
             config.t9ThresholdDp = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
@@ -1996,6 +2009,14 @@ public final class MainHook extends XposedModule {
             }
             imeRef = new WeakReference<>(ime);
 
+            if (isInputMethodAction(action)) {
+                hideKeyboardHint(0L);
+                if (!performInputMethodAction(ime, action)) {
+                    logError(actionName + " failed: system rejected input-method action", null);
+                }
+                return;
+            }
+
             EditorInfo editorInfo = ime.getCurrentInputEditorInfo();
             if (editorInfo != null && isPassword(editorInfo.inputType)) return;
 
@@ -2032,6 +2053,25 @@ public final class MainHook extends XposedModule {
         } catch (Throwable throwable) {
             logError("action failed", throwable);
         }
+    }
+
+    private static boolean isInputMethodAction(int action) {
+        return action == Config.ACTION_NEXT_INPUT_METHOD
+                || action == Config.ACTION_PREVIOUS_INPUT_METHOD
+                || action == Config.ACTION_SHOW_INPUT_METHOD_PICKER;
+    }
+
+    private boolean performInputMethodAction(InputMethodService ime, int action) {
+        if (ime == null) return false;
+        if (action == Config.ACTION_NEXT_INPUT_METHOD) return ime.switchToNextInputMethod(false);
+        if (action == Config.ACTION_PREVIOUS_INPUT_METHOD) return ime.switchToPreviousInputMethod();
+        if (action == Config.ACTION_SHOW_INPUT_METHOD_PICKER) {
+            Object service = ime.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (!(service instanceof InputMethodManager)) return false;
+            ((InputMethodManager) service).showInputMethodPicker();
+            return true;
+        }
+        return false;
     }
 
     private boolean performInsertText(InputConnection connection, String text) {

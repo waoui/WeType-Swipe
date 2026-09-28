@@ -21,7 +21,10 @@ final class EmbeddedConfigEditor {
             Config.ACTION_DOCUMENT_START,
             Config.ACTION_DOCUMENT_END,
             Config.ACTION_SELECT_TO_DOCUMENT_START,
-            Config.ACTION_SELECT_TO_DOCUMENT_END
+            Config.ACTION_SELECT_TO_DOCUMENT_END,
+            Config.ACTION_NEXT_INPUT_METHOD,
+            Config.ACTION_PREVIOUS_INPUT_METHOD,
+            Config.ACTION_SHOW_INPUT_METHOD_PICKER
     };
 
     private EmbeddedConfigEditor() {}
@@ -117,6 +120,9 @@ final class EmbeddedConfigEditor {
             case Config.ACTION_DOCUMENT_END: return config.documentEnd;
             case Config.ACTION_SELECT_TO_DOCUMENT_START: return config.selectToDocumentStart;
             case Config.ACTION_SELECT_TO_DOCUMENT_END: return config.selectToDocumentEnd;
+            case Config.ACTION_NEXT_INPUT_METHOD: return config.nextInputMethod;
+            case Config.ACTION_PREVIOUS_INPUT_METHOD: return config.previousInputMethod;
+            case Config.ACTION_SHOW_INPUT_METHOD_PICKER: return config.showInputMethodPicker;
             default: return "";
         }
     }
@@ -142,6 +148,9 @@ final class EmbeddedConfigEditor {
             case Config.ACTION_DOCUMENT_END: config.documentEnd = value; break;
             case Config.ACTION_SELECT_TO_DOCUMENT_START: config.selectToDocumentStart = value; break;
             case Config.ACTION_SELECT_TO_DOCUMENT_END: config.selectToDocumentEnd = value; break;
+            case Config.ACTION_NEXT_INPUT_METHOD: config.nextInputMethod = value; break;
+            case Config.ACTION_PREVIOUS_INPUT_METHOD: config.previousInputMethod = value; break;
+            case Config.ACTION_SHOW_INPUT_METHOD_PICKER: config.showInputMethodPicker = value; break;
             default: break;
         }
     }

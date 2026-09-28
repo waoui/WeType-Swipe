@@ -27,6 +27,9 @@ final class Config {
     static final String KEY_OPEN_QUICK_PHRASE = "open_quick_phrase";
     static final String KEY_UNDO = "undo";
     static final String KEY_REDO = "redo";
+    static final String KEY_NEXT_INPUT_METHOD = "next_input_method";
+    static final String KEY_PREVIOUS_INPUT_METHOD = "previous_input_method";
+    static final String KEY_SHOW_INPUT_METHOD_PICKER = "show_input_method_picker";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
@@ -72,13 +75,17 @@ final class Config {
     static final int ACTION_SELECT_TO_DOCUMENT_START = 18;
     static final int ACTION_SELECT_TO_DOCUMENT_END = 19;
     static final int ACTION_INSERT_TEXT = 20;
+    static final int ACTION_NEXT_INPUT_METHOD = 21;
+    static final int ACTION_PREVIOUS_INPUT_METHOD = 22;
+    static final int ACTION_SHOW_INPUT_METHOD_PICKER = 23;
 
     static final String[] ACTION_MENU_LABELS = {
             "未绑定", "全选", "剪切", "复制", "粘贴",
             "复制全部", "剪切全部",
             "段首", "段尾", "选至段首", "选至段尾",
             "文首", "文尾", "选至文首", "选至文尾",
-            "剪贴板", "快捷发送", "撤销", "重做", "输入指定内容", "禁用下滑"
+            "剪贴板", "快捷发送", "撤销", "重做", "输入指定内容",
+            "下一个输入法", "上一个输入法", "选择输入法", "禁用下滑"
     };
 
     private static final int[] ACTION_MENU_VALUES = {
@@ -102,6 +109,9 @@ final class Config {
             ACTION_UNDO,
             ACTION_REDO,
             ACTION_INSERT_TEXT,
+            ACTION_NEXT_INPUT_METHOD,
+            ACTION_PREVIOUS_INPUT_METHOD,
+            ACTION_SHOW_INPUT_METHOD_PICKER,
             ACTION_DISABLE
     };
 
@@ -123,6 +133,9 @@ final class Config {
     String openQuickPhrase = "";
     String undo = "";
     String redo = "";
+    String nextInputMethod = "";
+    String previousInputMethod = "";
+    String showInputMethodPicker = "";
     String disabledKeys = "";
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
@@ -159,6 +172,9 @@ final class Config {
         bind(openQuickPhrase, ACTION_OPEN_QUICK_PHRASE);
         bind(undo, ACTION_UNDO);
         bind(redo, ACTION_REDO);
+        bind(nextInputMethod, ACTION_NEXT_INPUT_METHOD);
+        bind(previousInputMethod, ACTION_PREVIOUS_INPUT_METHOD);
+        bind(showInputMethodPicker, ACTION_SHOW_INPUT_METHOD_PICKER);
         for (int i = 0; i < qwertyTexts.length; i++) {
             if (!normalizeInsertedText(qwertyTexts[i]).isEmpty()) actionMap[i] = ACTION_INSERT_TEXT;
         }
@@ -221,7 +237,7 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_INSERT_TEXT
+        return action >= ACTION_NONE && action <= ACTION_SHOW_INPUT_METHOD_PICKER
                 ? action : ACTION_NONE;
     }
 
@@ -317,6 +333,9 @@ final class Config {
             case ACTION_UNDO: return "撤销";
             case ACTION_REDO: return "重做";
             case ACTION_INSERT_TEXT: return "文本";
+            case ACTION_NEXT_INPUT_METHOD: return "下个输入";
+            case ACTION_PREVIOUS_INPUT_METHOD: return "上个输入";
+            case ACTION_SHOW_INPUT_METHOD_PICKER: return "选输入法";
             default: return "";
         }
     }
@@ -381,6 +400,9 @@ final class Config {
             case ACTION_UNDO: return "撤销";
             case ACTION_REDO: return "重做";
             case ACTION_INSERT_TEXT: return "输入指定内容";
+            case ACTION_NEXT_INPUT_METHOD: return "下一个输入法";
+            case ACTION_PREVIOUS_INPUT_METHOD: return "上一个输入法";
+            case ACTION_SHOW_INPUT_METHOD_PICKER: return "选择输入法";
             default: return "未绑定";
         }
     }

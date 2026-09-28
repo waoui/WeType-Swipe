@@ -11,7 +11,7 @@ body:
     id: module-version
     attributes:
       label: 模块版本
-      placeholder: 例如 v1.11.7
+      placeholder: 例如 v1.11.8
     validations:
       required: true
 
