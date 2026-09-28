@@ -2,17 +2,21 @@ package com.rww.wetypeswipe;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 /** Shared, accessible navigation for standalone and embedded settings. */
 final class SettingsTabs {
+    private static final String MODULE_PACKAGE = "com.rww.wetypeswipe";
     private static final String[] TITLES = {"26 键", "九宫格", "手势与选项"};
     private static final int TEXT_MUTED = Color.rgb(91, 103, 122);
     private static final int ACCENT = Color.rgb(36, 103, 214);
@@ -45,6 +49,7 @@ final class SettingsTabs {
         outer.setBackgroundColor(Color.WHITE);
         outer.addView(host, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        installEmbeddedSystemBarGuard(outer);
 
         for (int i = 0; i < buttons.length; i++) {
             final int index = i;
@@ -65,6 +70,55 @@ final class SettingsTabs {
         }
         select(0);
         return outer;
+    }
+
+    /**
+     * Embedded settings live inside the WeType process. On Android versions enforcing
+     * edge-to-edge, the host Dialog may still lay its custom page beneath system bars even
+     * when decorFitsSystemWindows(true) was requested. Apply only the actually-overlapped
+     * portion as padding so older/fitted hosts are not double-inset.
+     */
+    private void installEmbeddedSystemBarGuard(View anchor) {
+        if (MODULE_PACKAGE.equals(activity.getPackageName())) return;
+        anchor.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) {
+                if (!(view.getParent() instanceof View)) return;
+                View page = (View) view.getParent();
+                page.setOnApplyWindowInsetsListener((target, insets) -> {
+                    int top;
+                    int bottom;
+                    if (Build.VERSION.SDK_INT >= 30) {
+                        Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                        top = bars.top;
+                        bottom = bars.bottom;
+                    } else {
+                        top = insets.getSystemWindowInsetTop();
+                        bottom = insets.getSystemWindowInsetBottom();
+                    }
+
+                    int[] location = new int[2];
+                    target.getLocationOnScreen(location);
+                    int topPadding = Math.max(0, top - location[1]);
+
+                    int rootHeight = target.getRootView().getHeight();
+                    int targetBottom = location[1] + target.getHeight();
+                    int bottomPadding = rootHeight > 0
+                            ? Math.max(0, targetBottom - (rootHeight - bottom))
+                            : 0;
+
+                    target.setPadding(
+                            target.getPaddingLeft(),
+                            topPadding,
+                            target.getPaddingRight(),
+                            bottomPadding);
+                    return insets;
+                });
+                page.requestApplyInsets();
+                page.post(page::requestApplyInsets);
+            }
+
+            @Override public void onViewDetachedFromWindow(View view) {}
+        });
     }
 
     private void select(int active) {
