@@ -46,37 +46,8 @@ public final class MainActivity extends Activity {
     private static final int COLOR_DANGER = Color.rgb(190, 55, 55);
     private static final int COLOR_DANGER_SOFT = Color.rgb(255, 237, 237);
 
-    private static final int[] QWERTY_ACTIONS = {
-            Config.ACTION_SELECT_ALL,
-            Config.ACTION_CUT,
-            Config.ACTION_COPY,
-            Config.ACTION_PASTE,
-            Config.ACTION_COPY_ALL,
-            Config.ACTION_CUT_ALL,
-            Config.ACTION_PARAGRAPH_START,
-            Config.ACTION_PARAGRAPH_END,
-            Config.ACTION_SELECT_TO_PARAGRAPH_START,
-            Config.ACTION_SELECT_TO_PARAGRAPH_END,
-            Config.ACTION_OPEN_CLIPBOARD,
-            Config.ACTION_OPEN_QUICK_PHRASE,
-            Config.ACTION_UNDO,
-            Config.ACTION_REDO,
-            Config.ACTION_DOCUMENT_START,
-            Config.ACTION_DOCUMENT_END,
-            Config.ACTION_SELECT_TO_DOCUMENT_START,
-            Config.ACTION_SELECT_TO_DOCUMENT_END,
-            Config.ACTION_NEXT_INPUT_METHOD,
-            Config.ACTION_PREVIOUS_INPUT_METHOD,
-            Config.ACTION_SHOW_INPUT_METHOD_PICKER
-    };
-
-    private static final String[] QWERTY_LABELS = {
-            "全选", "剪切", "复制", "粘贴", "复制全部", "剪切全部",
-            "段首", "段尾", "选至段首", "选至段尾",
-            "剪贴板", "快捷发送", "撤销", "重做",
-            "文首", "文尾", "选至文首", "选至文尾",
-            "下一个输入法", "上一个输入法", "选择输入法"
-    };
+    private static final int[] QWERTY_ACTIONS = ActionRegistry.qwertyActions();
+    private static final String[] QWERTY_LABELS = ActionRegistry.qwertyLabels();
 
     private static final String[] QWERTY_ROWS = {
             "qwertyuiop",
@@ -188,7 +159,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.8 · 系统输入法切换", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.9-test1 · 架构重构测试", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);
@@ -771,42 +742,37 @@ public final class MainActivity extends Activity {
     }
 
     private void loadUiState() {
-        qwertyKeys[0] = normalizedKey(prefs.getString(Config.KEY_SELECT_ALL, "z"));
-        qwertyKeys[1] = normalizedKey(prefs.getString(Config.KEY_CUT, "x"));
-        qwertyKeys[2] = normalizedKey(prefs.getString(Config.KEY_COPY, "c"));
-        qwertyKeys[3] = normalizedKey(prefs.getString(Config.KEY_PASTE, "v"));
-        qwertyKeys[4] = normalizedKey(prefs.getString(Config.KEY_COPY_ALL, ""));
-        qwertyKeys[5] = normalizedKey(prefs.getString(Config.KEY_CUT_ALL, ""));
-        qwertyKeys[6] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_START, ""));
-        qwertyKeys[7] = normalizedKey(prefs.getString(Config.KEY_PARAGRAPH_END, ""));
-        qwertyKeys[8] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, ""));
-        qwertyKeys[9] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, ""));
-        qwertyKeys[10] = normalizedKey(prefs.getString(Config.KEY_OPEN_CLIPBOARD, ""));
-        qwertyKeys[11] = normalizedKey(prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, ""));
-        qwertyKeys[12] = normalizedKey(prefs.getString(Config.KEY_UNDO, ""));
-        qwertyKeys[13] = normalizedKey(prefs.getString(Config.KEY_REDO, ""));
-        qwertyKeys[14] = normalizedKey(prefs.getString(Config.KEY_DOCUMENT_START, ""));
-        qwertyKeys[15] = normalizedKey(prefs.getString(Config.KEY_DOCUMENT_END, ""));
-        qwertyKeys[16] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_START, ""));
-        qwertyKeys[17] = normalizedKey(prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_END, ""));
-        qwertyKeys[18] = normalizedKey(prefs.getString(Config.KEY_NEXT_INPUT_METHOD, ""));
-        qwertyKeys[19] = normalizedKey(prefs.getString(Config.KEY_PREVIOUS_INPUT_METHOD, ""));
-        qwertyKeys[20] = normalizedKey(prefs.getString(Config.KEY_SHOW_INPUT_METHOD_PICKER, ""));
-        disabledKeys = normalizedKeys(prefs.getString(Config.KEY_DISABLED_KEYS, ""));
-        for (char key = 'a'; key <= 'z'; key++) {
-            qwertyCustomLabels[key - 'a'] = Config.normalizeLabelValue(
-                    prefs.getString(Config.qwertyLabelPrefKey(key), ""));
-            qwertyInsertTexts[key - 'a'] = Config.normalizeInsertedText(
-                    prefs.getString(Config.qwertyTextPrefKey(key), ""));
+        Config config = ConfigCodec.fromPreferences(prefs);
+        for (int i = 0; i < QWERTY_ACTIONS.length; i++) {
+            qwertyKeys[i] = normalizedKey(ActionRegistry.keyFor(config, QWERTY_ACTIONS[i]));
         }
-        for (int digit = 2; digit <= 9; digit++) {
-            t9CustomLabels[digit] = Config.normalizeLabelValue(
-                    prefs.getString(Config.t9LabelPrefKey(digit), ""));
-            t9Actions[digit] = Config.validAction(
-                    prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
-            t9InsertTexts[digit] = Config.normalizeInsertedText(
-                    prefs.getString(Config.t9TextPrefKey(digit), ""));
+        disabledKeys = normalizedKeys(config.disabledKeys);
+        System.arraycopy(config.qwertyLabels, 0, qwertyCustomLabels, 0, qwertyCustomLabels.length);
+        System.arraycopy(config.qwertyTexts, 0, qwertyInsertTexts, 0, qwertyInsertTexts.length);
+        System.arraycopy(config.t9Actions, 0, t9Actions, 0, t9Actions.length);
+        System.arraycopy(config.t9Labels, 0, t9CustomLabels, 0, t9CustomLabels.length);
+        System.arraycopy(config.t9Texts, 0, t9InsertTexts, 0, t9InsertTexts.length);
+    }
+
+    private Config configFromUi(int revision) {
+        Config config = new Config();
+        for (int i = 0; i < QWERTY_ACTIONS.length; i++) {
+            ActionRegistry.setKey(config, QWERTY_ACTIONS[i], qwertyKeys[i]);
         }
+        config.disabledKeys = disabledKeys;
+        config.thresholdDp = threshold.getProgress() + 6;
+        config.t9ThresholdDp = t9Threshold.getProgress() + 10;
+        config.vibration = vibration.isChecked();
+        config.showKeyLabels = showKeyLabels.isChecked();
+        config.showTriggerHint = showTriggerHint.isChecked();
+        config.revision = revision;
+        System.arraycopy(t9Actions, 0, config.t9Actions, 0, t9Actions.length);
+        System.arraycopy(qwertyCustomLabels, 0, config.qwertyLabels, 0, qwertyCustomLabels.length);
+        System.arraycopy(t9CustomLabels, 0, config.t9Labels, 0, t9CustomLabels.length);
+        System.arraycopy(qwertyInsertTexts, 0, config.qwertyTexts, 0, qwertyInsertTexts.length);
+        System.arraycopy(t9InsertTexts, 0, config.t9Texts, 0, t9InsertTexts.length);
+        config.rebuildActionMap();
+        return config;
     }
 
     private void save() {
@@ -826,52 +792,12 @@ public final class MainActivity extends Activity {
 
         boolean shouldHideIcon = hideIcon.isChecked();
         int revision = prefs.getInt(Config.KEY_REVISION, 0) + 1;
-        SharedPreferences.Editor editor = prefs.edit()
-                .putString(Config.KEY_SELECT_ALL, qwertyKeys[0])
-                .putString(Config.KEY_CUT, qwertyKeys[1])
-                .putString(Config.KEY_COPY, qwertyKeys[2])
-                .putString(Config.KEY_PASTE, qwertyKeys[3])
-                .putString(Config.KEY_COPY_ALL, qwertyKeys[4])
-                .putString(Config.KEY_CUT_ALL, qwertyKeys[5])
-                .putString(Config.KEY_PARAGRAPH_START, qwertyKeys[6])
-                .putString(Config.KEY_PARAGRAPH_END, qwertyKeys[7])
-                .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[8])
-                .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[9])
-                .putString(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[10])
-                .putString(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11])
-                .putString(Config.KEY_UNDO, qwertyKeys[12])
-                .putString(Config.KEY_REDO, qwertyKeys[13])
-                .putString(Config.KEY_DOCUMENT_START, qwertyKeys[14])
-                .putString(Config.KEY_DOCUMENT_END, qwertyKeys[15])
-                .putString(Config.KEY_SELECT_TO_DOCUMENT_START, qwertyKeys[16])
-                .putString(Config.KEY_SELECT_TO_DOCUMENT_END, qwertyKeys[17])
-                .putString(Config.KEY_NEXT_INPUT_METHOD, qwertyKeys[18])
-                .putString(Config.KEY_PREVIOUS_INPUT_METHOD, qwertyKeys[19])
-                .putString(Config.KEY_SHOW_INPUT_METHOD_PICKER, qwertyKeys[20])
-                .putString(Config.KEY_DISABLED_KEYS, disabledKeys)
-                .remove("text_start")
+        Config config = configFromUi(revision);
+        SharedPreferences.Editor editor = prefs.edit();
+        ConfigCodec.writeToPreferences(editor, config);
+        editor.remove("text_start")
                 .remove("text_end")
-                .putInt(Config.KEY_THRESHOLD, threshold.getProgress() + 6)
-                .putInt(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10)
-                .putBoolean(Config.KEY_VIBRATION, vibration.isChecked())
-                .putBoolean(Config.KEY_SHOW_KEY_LABELS, showKeyLabels.isChecked())
-                .putBoolean(Config.KEY_SHOW_TRIGGER_HINT, showTriggerHint.isChecked())
-                .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon)
-                .putInt(Config.KEY_REVISION, revision);
-
-        for (char key = 'a'; key <= 'z'; key++) {
-            editor.putString(Config.qwertyLabelPrefKey(key),
-                    Config.normalizeLabelValue(qwertyCustomLabels[key - 'a']));
-            editor.putString(Config.qwertyTextPrefKey(key),
-                    Config.normalizeInsertedText(qwertyInsertTexts[key - 'a']));
-        }
-        for (int digit = 2; digit <= 9; digit++) {
-            editor.putInt(Config.t9PrefKey(digit), t9Actions[digit]);
-            editor.putString(Config.t9LabelPrefKey(digit),
-                    Config.normalizeLabelValue(t9CustomLabels[digit]));
-            editor.putString(Config.t9TextPrefKey(digit),
-                    Config.normalizeInsertedText(t9InsertTexts[digit]));
-        }
+                .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon);
 
         if (!editor.commit()) {
             Toast.makeText(this, "配置保存失败", Toast.LENGTH_SHORT).show();
@@ -880,48 +806,7 @@ public final class MainActivity extends Activity {
 
         Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
         changed.setPackage("com.tencent.wetype");
-        changed.putExtra(Config.EXTRA_SNAPSHOT, true);
-        changed.putExtra(Config.KEY_SELECT_ALL, qwertyKeys[0]);
-        changed.putExtra(Config.KEY_CUT, qwertyKeys[1]);
-        changed.putExtra(Config.KEY_COPY, qwertyKeys[2]);
-        changed.putExtra(Config.KEY_PASTE, qwertyKeys[3]);
-        changed.putExtra(Config.KEY_COPY_ALL, qwertyKeys[4]);
-        changed.putExtra(Config.KEY_CUT_ALL, qwertyKeys[5]);
-        changed.putExtra(Config.KEY_PARAGRAPH_START, qwertyKeys[6]);
-        changed.putExtra(Config.KEY_PARAGRAPH_END, qwertyKeys[7]);
-        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_START, qwertyKeys[8]);
-        changed.putExtra(Config.KEY_SELECT_TO_PARAGRAPH_END, qwertyKeys[9]);
-        changed.putExtra(Config.KEY_OPEN_CLIPBOARD, qwertyKeys[10]);
-        changed.putExtra(Config.KEY_OPEN_QUICK_PHRASE, qwertyKeys[11]);
-        changed.putExtra(Config.KEY_UNDO, qwertyKeys[12]);
-        changed.putExtra(Config.KEY_REDO, qwertyKeys[13]);
-        changed.putExtra(Config.KEY_DOCUMENT_START, qwertyKeys[14]);
-        changed.putExtra(Config.KEY_DOCUMENT_END, qwertyKeys[15]);
-        changed.putExtra(Config.KEY_SELECT_TO_DOCUMENT_START, qwertyKeys[16]);
-        changed.putExtra(Config.KEY_SELECT_TO_DOCUMENT_END, qwertyKeys[17]);
-        changed.putExtra(Config.KEY_NEXT_INPUT_METHOD, qwertyKeys[18]);
-        changed.putExtra(Config.KEY_PREVIOUS_INPUT_METHOD, qwertyKeys[19]);
-        changed.putExtra(Config.KEY_SHOW_INPUT_METHOD_PICKER, qwertyKeys[20]);
-        changed.putExtra(Config.KEY_DISABLED_KEYS, disabledKeys);
-        changed.putExtra(Config.KEY_THRESHOLD, threshold.getProgress() + 6);
-        changed.putExtra(Config.KEY_T9_THRESHOLD, t9Threshold.getProgress() + 10);
-        changed.putExtra(Config.KEY_VIBRATION, vibration.isChecked());
-        changed.putExtra(Config.KEY_SHOW_KEY_LABELS, showKeyLabels.isChecked());
-        changed.putExtra(Config.KEY_SHOW_TRIGGER_HINT, showTriggerHint.isChecked());
-        changed.putExtra(Config.KEY_REVISION, revision);
-        for (char key = 'a'; key <= 'z'; key++) {
-            changed.putExtra(Config.qwertyLabelPrefKey(key),
-                    Config.normalizeLabelValue(qwertyCustomLabels[key - 'a']));
-            changed.putExtra(Config.qwertyTextPrefKey(key),
-                    Config.normalizeInsertedText(qwertyInsertTexts[key - 'a']));
-        }
-        for (int digit = 2; digit <= 9; digit++) {
-            changed.putExtra(Config.t9PrefKey(digit), t9Actions[digit]);
-            changed.putExtra(Config.t9LabelPrefKey(digit),
-                    Config.normalizeLabelValue(t9CustomLabels[digit]));
-            changed.putExtra(Config.t9TextPrefKey(digit),
-                    Config.normalizeInsertedText(t9InsertTexts[digit]));
-        }
+        ConfigSnapshot.putInto(changed, config);
         sendBroadcast(changed);
 
         setLauncherIconHidden(shouldHideIcon);
@@ -983,32 +868,9 @@ public final class MainActivity extends Activity {
     }
 
     private String shortActionName(int action) {
-        switch (Config.validAction(action)) {
-            case Config.ACTION_SELECT_ALL: return "全选";
-            case Config.ACTION_CUT: return "剪切";
-            case Config.ACTION_COPY: return "复制";
-            case Config.ACTION_PASTE: return "粘贴";
-            case Config.ACTION_COPY_ALL: return "全复制";
-            case Config.ACTION_CUT_ALL: return "全剪切";
-            case Config.ACTION_DISABLE: return "禁用";
-            case Config.ACTION_PARAGRAPH_START: return "段首";
-            case Config.ACTION_PARAGRAPH_END: return "段尾";
-            case Config.ACTION_SELECT_TO_PARAGRAPH_START: return "选段首";
-            case Config.ACTION_SELECT_TO_PARAGRAPH_END: return "选段尾";
-            case Config.ACTION_OPEN_CLIPBOARD: return "剪贴板";
-            case Config.ACTION_OPEN_QUICK_PHRASE: return "快捷语";
-            case Config.ACTION_UNDO: return "撤销";
-            case Config.ACTION_REDO: return "重做";
-            case Config.ACTION_DOCUMENT_START: return "文首";
-            case Config.ACTION_DOCUMENT_END: return "文尾";
-            case Config.ACTION_SELECT_TO_DOCUMENT_START: return "选文首";
-            case Config.ACTION_SELECT_TO_DOCUMENT_END: return "选文尾";
-            case Config.ACTION_INSERT_TEXT: return "文本";
-            case Config.ACTION_NEXT_INPUT_METHOD: return "下个输入";
-            case Config.ACTION_PREVIOUS_INPUT_METHOD: return "上个输入";
-            case Config.ACTION_SHOW_INPUT_METHOD_PICKER: return "选输入法";
-            default: return "—";
-        }
+        if (Config.validAction(action) == Config.ACTION_DISABLE) return "禁用";
+        String label = ActionRegistry.shortLabel(action);
+        return label.isEmpty() ? "—" : label;
     }
 
     private String normalizedKey(String value) {

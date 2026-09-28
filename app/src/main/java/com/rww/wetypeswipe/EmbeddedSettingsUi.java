@@ -114,7 +114,7 @@ final class EmbeddedSettingsUi {
         TextView title = text(activity, "微信输入法下滑快捷键", 21, TEXT);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         labels.addView(title);
-        TextView version = text(activity, "v1.11.8 · 内置模块模式", 13, SECONDARY);
+        TextView version = text(activity, "v1.11.9-test1 · 架构重构测试", 13, SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(activity, 4);
         labels.addView(version, versionParams);
