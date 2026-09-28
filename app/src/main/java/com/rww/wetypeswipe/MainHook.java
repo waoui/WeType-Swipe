@@ -1,17 +1,12 @@
 package com.rww.wetypeswipe;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Application;
-import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.Configuration;
-import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.inputmethodservice.InputMethodService;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -54,14 +49,17 @@ import io.github.libxposed.api.XposedModuleInterface;
 public final class MainHook extends XposedModule {
     private static final String TAG = "WeTypeSwipe";
     private static final String TARGET = "com.tencent.wetype";
-    private static final String LEGACY_KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.n";
-    private static final String WETYPE_4_KEYBOARD_BASE = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.o";
-    private static final String SELF_DRAW_PREFIX = "com.tencent.wetype.plugin.hld.keyboard.selfdraw.";
     private static final int PARAGRAPH_CONTEXT_CHARS = 65_536;
     private static final int NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT = 128;
 
     private final GestureTracker tracker = new GestureTracker();
-    private final ConcurrentHashMap<String, Method> methodCache = new ConcurrentHashMap<>();
+    private final Reflector reflector = new Reflector();
+    private final KeyResolver keyResolver = new KeyResolver(reflector);
+    private final ConfigBridge configBridge = new ConfigBridge(TARGET, new ConfigBridge.Listener() {
+        @Override public void onConfigChanged(Config config) { nativeSingleKeyLabelCache.clear(); }
+        @Override public void info(String message) { logInfo(message); }
+        @Override public void error(String message, Throwable throwable) { logError(message, throwable); }
+    });
     private final ConcurrentHashMap<Method, Boolean> keyboardLabelHookedMethods = new ConcurrentHashMap<>();
     private final Paint keyboardLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private volatile WeakReference<View> nativeLabelGeometryViewRef = new WeakReference<>(null);
@@ -78,6 +76,12 @@ public final class MainHook extends XposedModule {
     private volatile WeakReference<View> nativeSingleKeyActiveKeyboardRef = new WeakReference<>(null);
     private final ConcurrentHashMap<Object, String> nativeSingleKeyLabelCache = new ConcurrentHashMap<>();
     private volatile long nativeSingleKeyPaintSignature = Long.MIN_VALUE;
+    private volatile int lastResolvedNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+    private volatile int liveNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+    private volatile WeakReference<View> runtimeKeyboardRef = new WeakReference<>(null);
+    private volatile KeyboardRuntimeState runtimeKeyboardState;
+    private final ConcurrentHashMap<Class<?>, Boolean> keyboardDrawPreparedClasses = new ConcurrentHashMap<>();
+    private volatile long nativeSingleKeyNextResolveAtMs;
     private volatile Class<?> nativeSingleKeyModelClass;
     private volatile Field nativeSingleKeyDrawRectField;
     private volatile Field nativeSingleKeyParentField;
@@ -92,11 +96,8 @@ public final class MainHook extends XposedModule {
     private volatile boolean keyboardLabelGeometryBuilding;
 
     private volatile WeakReference<InputMethodService> imeRef = new WeakReference<>(null);
-    private volatile Config cachedConfig = defaultConfig();
     private volatile Class<?> keyboardBaseClass;
     private volatile boolean hooksInstalled;
-    private volatile boolean receiverRegistered;
-    private volatile boolean targetCacheLoaded;
     private volatile int currentSelectionStart = -1;
     private volatile int currentSelectionEnd = -1;
     private volatile Class<?> selectionHookedClass;
@@ -115,7 +116,6 @@ public final class MainHook extends XposedModule {
     private volatile WeakReference<TextView> keyboardHintViewRef = new WeakReference<>(null);
     private Runnable keyboardHintHideTask;
     private final AboutIconUnlock aboutIconUnlock = new AboutIconUnlock();
-    private BroadcastReceiver configReceiver;
 
     @Override public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
         logInfo("Modern API " + getApiVersion() + " loaded in " + param.getProcessName());
@@ -125,17 +125,12 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.8 entered target package; system input-method actions enabled");
+            logInfo("v1.11.9-test3 entered target package; hot-path performance optimizations enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
     }
 
-    private static Config defaultConfig() {
-        Config config = new Config();
-        config.rebuildActionMap();
-        return config;
-    }
 
     private synchronized void installHooks() throws Exception {
         if (hooksInstalled) return;
@@ -144,9 +139,13 @@ public final class MainHook extends XposedModule {
                 chain -> captureApplication(chain.getThisObject()));
         hookAfter(Application.class.getDeclaredMethod("onCreate"),
                 chain -> captureApplication(chain.getThisObject()));
+        hookAfter(Application.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
+                chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
 
         hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
                 chain -> captureIme(chain.getThisObject()));
+        hookAfter(InputMethodService.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
+                chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
         hookBefore(InputMethodService.class.getDeclaredMethod("onStartInput", EditorInfo.class, boolean.class),
                 chain -> captureStartInput(chain.getThisObject(), (EditorInfo) chain.getArg(0)));
         hookAfter(InputMethodService.class.getDeclaredMethod("onUpdateSelection",
@@ -212,6 +211,18 @@ public final class MainHook extends XposedModule {
             return;
         }
         ensureConfigSync(app);
+        refreshLiveNightMode(app.getResources().getConfiguration().uiMode, null);
+    }
+
+    private void captureConfiguration(Object object, Configuration configuration) {
+        if (!(object instanceof Context) || configuration == null) return;
+        Context context = (Context) object;
+        try {
+            if (!TARGET.equals(context.getPackageName())) return;
+        } catch (Throwable ignored) {
+            return;
+        }
+        refreshLiveNightMode(configuration.uiMode, null);
     }
 
     private static Activity findActivity(Context context) {
@@ -267,7 +278,7 @@ public final class MainHook extends XposedModule {
                     if (activity.isFinishing()) return;
                     EmbeddedSettingsUi.show(
                             activity,
-                            () -> ConfigSnapshot.copyOf(cachedConfig),
+                            () -> ConfigSnapshot.copyOf(configBridge.current()),
                             config -> applyEmbeddedConfig(activity, config));
                     logInfo("embedded settings opened by verified global view-touch five-tap");
                 } catch (Throwable throwable) {
@@ -280,28 +291,7 @@ public final class MainHook extends XposedModule {
     }
 
     private synchronized void applyEmbeddedConfig(Context context, Config config) {
-        if (context == null || config == null) return;
-        try {
-            Config current = cachedConfig;
-            int currentRevision = current == null ? 0 : current.revision;
-            config.revision = Math.max(config.revision, currentRevision) + 1;
-            config.rebuildActionMap();
-            cachedConfig = config;
-            nativeSingleKeyLabelCache.clear();
-            targetCacheLoaded = true;
-
-            Context stable = context.getApplicationContext();
-            if (stable == null) stable = context;
-            persistTargetCache(stable, config);
-
-            Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
-            changed.setPackage(TARGET);
-            ConfigSnapshot.putInto(changed, config);
-            stable.sendBroadcast(changed);
-            logInfo("embedded settings saved revision=" + config.revision);
-        } catch (Throwable throwable) {
-            logError("embedded settings save failed", throwable);
-        }
+        configBridge.applyEmbedded(context, config);
     }
 
     private void captureIme(Object object) {
@@ -317,8 +307,11 @@ public final class MainHook extends XposedModule {
         if (previousIme != ime) {
             clearToolbarCarrierCache();
             clearKeyboardHint();
+            runtimeKeyboardRef = new WeakReference<>(null);
+            runtimeKeyboardState = null;
         }
         imeRef = new WeakReference<>(ime);
+        refreshLiveNightMode(ime.getResources().getConfiguration().uiMode, null);
         ensureConfigSync(ime);
         ensureConcreteSelectionHook(ime.getClass());
 
@@ -349,7 +342,7 @@ public final class MainHook extends XposedModule {
     private synchronized void ensureConcreteSelectionHook(Class<?> imeClass) {
         if (imeClass == null || imeClass == InputMethodService.class || selectionHookedClass == imeClass) return;
         try {
-            Method method = findMethod(imeClass, "onUpdateSelection", new Class<?>[]{
+            Method method = Reflector.findMethod(imeClass, "onUpdateSelection", new Class<?>[]{
                     int.class, int.class, int.class, int.class, int.class, int.class});
             if (method == null || method.getDeclaringClass() == InputMethodService.class) return;
             hookAfter(method, this::captureSelection);
@@ -360,235 +353,8 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    @SuppressLint("UnspecifiedRegisterReceiverFlag") // API < 33 only provides the legacy overload.
-    private synchronized void registerConfigReceiver(Context context) {
-        if (receiverRegistered || context == null) return;
-        configReceiver = new BroadcastReceiver() {
-            @Override public void onReceive(Context receiverContext, Intent intent) {
-                if (intent == null || !Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
-                if (intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
-                    Config config = configFromIntent(intent);
-                    if (config != null) {
-                        cachedConfig = config;
-                        nativeSingleKeyLabelCache.clear();
-                        targetCacheLoaded = true;
-                        persistTargetCache(receiverContext, config);
-                        return;
-                    }
-                }
-                loadConfigFromTargetCache(receiverContext);
-            }
-        };
-        try {
-            IntentFilter filter = new IntentFilter(Config.ACTION_CONFIG_CHANGED);
-            if (Build.VERSION.SDK_INT >= 33) {
-                context.registerReceiver(configReceiver, filter, Context.RECEIVER_EXPORTED);
-            } else {
-                context.registerReceiver(configReceiver, filter);
-            }
-            receiverRegistered = true;
-        } catch (Throwable throwable) {
-            logError("config receiver registration failed", throwable);
-        }
-    }
-
     private void ensureConfigSync(Context context) {
-        if (context == null) return;
-        Context stableContext = context.getApplicationContext();
-        if (stableContext == null) stableContext = context;
-        registerConfigReceiver(stableContext);
-        loadConfigFromTargetCache(stableContext);
-    }
-
-    private Config configFromIntent(Intent intent) {
-        try {
-            Config config = new Config();
-            config.selectAll = intent.getStringExtra(Config.KEY_SELECT_ALL);
-            config.cut = intent.getStringExtra(Config.KEY_CUT);
-            config.copy = intent.getStringExtra(Config.KEY_COPY);
-            config.paste = intent.getStringExtra(Config.KEY_PASTE);
-            config.copyAll = intent.getStringExtra(Config.KEY_COPY_ALL);
-            config.cutAll = intent.getStringExtra(Config.KEY_CUT_ALL);
-            config.paragraphStart = intent.getStringExtra(Config.KEY_PARAGRAPH_START);
-            config.paragraphEnd = intent.getStringExtra(Config.KEY_PARAGRAPH_END);
-            config.selectToParagraphStart = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_START);
-            config.selectToParagraphEnd = intent.getStringExtra(Config.KEY_SELECT_TO_PARAGRAPH_END);
-            config.documentStart = intent.getStringExtra(Config.KEY_DOCUMENT_START);
-            config.documentEnd = intent.getStringExtra(Config.KEY_DOCUMENT_END);
-            config.selectToDocumentStart = intent.getStringExtra(Config.KEY_SELECT_TO_DOCUMENT_START);
-            config.selectToDocumentEnd = intent.getStringExtra(Config.KEY_SELECT_TO_DOCUMENT_END);
-            config.openClipboard = intent.getStringExtra(Config.KEY_OPEN_CLIPBOARD);
-            config.openQuickPhrase = intent.getStringExtra(Config.KEY_OPEN_QUICK_PHRASE);
-            config.undo = intent.getStringExtra(Config.KEY_UNDO);
-            config.redo = intent.getStringExtra(Config.KEY_REDO);
-            config.nextInputMethod = intent.getStringExtra(Config.KEY_NEXT_INPUT_METHOD);
-            config.previousInputMethod = intent.getStringExtra(Config.KEY_PREVIOUS_INPUT_METHOD);
-            config.showInputMethodPicker = intent.getStringExtra(Config.KEY_SHOW_INPUT_METHOD_PICKER);
-            config.disabledKeys = intent.getStringExtra(Config.KEY_DISABLED_KEYS);
-            if (config.selectAll == null) config.selectAll = "z";
-            if (config.cut == null) config.cut = "x";
-            if (config.copy == null) config.copy = "c";
-            if (config.paste == null) config.paste = "v";
-            if (config.copyAll == null) config.copyAll = "";
-            if (config.cutAll == null) config.cutAll = "";
-            if (config.paragraphStart == null) config.paragraphStart = "";
-            if (config.paragraphEnd == null) config.paragraphEnd = "";
-            if (config.selectToParagraphStart == null) config.selectToParagraphStart = "";
-            if (config.selectToParagraphEnd == null) config.selectToParagraphEnd = "";
-            if (config.documentStart == null) config.documentStart = "";
-            if (config.documentEnd == null) config.documentEnd = "";
-            if (config.selectToDocumentStart == null) config.selectToDocumentStart = "";
-            if (config.selectToDocumentEnd == null) config.selectToDocumentEnd = "";
-            if (config.openClipboard == null) config.openClipboard = "";
-            if (config.openQuickPhrase == null) config.openQuickPhrase = "";
-            if (config.undo == null) config.undo = "";
-            if (config.redo == null) config.redo = "";
-            if (config.nextInputMethod == null) config.nextInputMethod = "";
-            if (config.previousInputMethod == null) config.previousInputMethod = "";
-            if (config.showInputMethodPicker == null) config.showInputMethodPicker = "";
-            if (config.disabledKeys == null) config.disabledKeys = "";
-            config.thresholdDp = clamp(intent.getIntExtra(Config.KEY_THRESHOLD, 12), 6, 40, 12);
-            config.t9ThresholdDp = clamp(intent.getIntExtra(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
-            config.vibration = intent.getBooleanExtra(Config.KEY_VIBRATION, true);
-            config.showKeyLabels = intent.getBooleanExtra(Config.KEY_SHOW_KEY_LABELS, true);
-            config.showTriggerHint = intent.getBooleanExtra(Config.KEY_SHOW_TRIGGER_HINT, true);
-            config.revision = intent.getIntExtra(Config.KEY_REVISION, 0);
-            for (char key = 'a'; key <= 'z'; key++) {
-                config.qwertyLabels[key - 'a'] = Config.normalizeLabelValue(
-                        intent.getStringExtra(Config.qwertyLabelPrefKey(key)));
-                config.qwertyTexts[key - 'a'] = Config.normalizeInsertedText(
-                        intent.getStringExtra(Config.qwertyTextPrefKey(key)));
-            }
-            for (int digit = 2; digit <= 9; digit++) {
-                config.t9Actions[digit] = Config.validAction(
-                        intent.getIntExtra(Config.t9PrefKey(digit), Config.ACTION_NONE));
-                config.t9Labels[digit] = Config.normalizeLabelValue(
-                        intent.getStringExtra(Config.t9LabelPrefKey(digit)));
-                config.t9Texts[digit] = Config.normalizeInsertedText(
-                        intent.getStringExtra(Config.t9TextPrefKey(digit)));
-            }
-            config.rebuildActionMap();
-            return config;
-        } catch (Throwable throwable) {
-            logError("config snapshot parse failed", throwable);
-            return null;
-        }
-    }
-
-    private synchronized void persistTargetCache(Context context, Config config) {
-        try {
-            SharedPreferences.Editor editor = context.getSharedPreferences(
-                    Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE).edit()
-                    .putString(Config.KEY_SELECT_ALL, config.selectAll)
-                    .putString(Config.KEY_CUT, config.cut)
-                    .putString(Config.KEY_COPY, config.copy)
-                    .putString(Config.KEY_PASTE, config.paste)
-                    .putString(Config.KEY_COPY_ALL, config.copyAll)
-                    .putString(Config.KEY_CUT_ALL, config.cutAll)
-                    .putString(Config.KEY_PARAGRAPH_START, config.paragraphStart)
-                    .putString(Config.KEY_PARAGRAPH_END, config.paragraphEnd)
-                    .putString(Config.KEY_SELECT_TO_PARAGRAPH_START, config.selectToParagraphStart)
-                    .putString(Config.KEY_SELECT_TO_PARAGRAPH_END, config.selectToParagraphEnd)
-                    .putString(Config.KEY_DOCUMENT_START, config.documentStart)
-                    .putString(Config.KEY_DOCUMENT_END, config.documentEnd)
-                    .putString(Config.KEY_SELECT_TO_DOCUMENT_START, config.selectToDocumentStart)
-                    .putString(Config.KEY_SELECT_TO_DOCUMENT_END, config.selectToDocumentEnd)
-                    .putString(Config.KEY_OPEN_CLIPBOARD, config.openClipboard)
-                    .putString(Config.KEY_OPEN_QUICK_PHRASE, config.openQuickPhrase)
-                    .putString(Config.KEY_UNDO, config.undo)
-                    .putString(Config.KEY_REDO, config.redo)
-                    .putString(Config.KEY_NEXT_INPUT_METHOD, config.nextInputMethod)
-                    .putString(Config.KEY_PREVIOUS_INPUT_METHOD, config.previousInputMethod)
-                    .putString(Config.KEY_SHOW_INPUT_METHOD_PICKER, config.showInputMethodPicker)
-                    .putString(Config.KEY_DISABLED_KEYS, config.disabledKeys)
-                    .putInt(Config.KEY_THRESHOLD, config.thresholdDp)
-                    .putInt(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp)
-                    .putBoolean(Config.KEY_VIBRATION, config.vibration)
-                    .putBoolean(Config.KEY_SHOW_KEY_LABELS, config.showKeyLabels)
-                    .putBoolean(Config.KEY_SHOW_TRIGGER_HINT, config.showTriggerHint)
-                    .putInt(Config.KEY_REVISION, config.revision);
-            for (char key = 'a'; key <= 'z'; key++) {
-                editor.putString(Config.qwertyLabelPrefKey(key),
-                        Config.normalizeLabelValue(config.qwertyLabels[key - 'a']));
-                editor.putString(Config.qwertyTextPrefKey(key),
-                        Config.normalizeInsertedText(config.qwertyTexts[key - 'a']));
-            }
-            for (int digit = 2; digit <= 9; digit++) {
-                editor.putInt(Config.t9PrefKey(digit), config.t9Actions[digit]);
-                editor.putString(Config.t9LabelPrefKey(digit),
-                        Config.normalizeLabelValue(config.t9Labels[digit]));
-                editor.putString(Config.t9TextPrefKey(digit),
-                        Config.normalizeInsertedText(config.t9Texts[digit]));
-            }
-            editor.commit();
-        } catch (Throwable throwable) {
-            logError("target config cache write failed", throwable);
-        }
-    }
-
-    private synchronized void loadConfigFromTargetCache(Context context) {
-        try {
-            SharedPreferences prefs = context.getSharedPreferences(
-                    Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE);
-            if (!prefs.contains(Config.KEY_REVISION)) {
-                targetCacheLoaded = false;
-                return;
-            }
-            Config config = new Config();
-            config.selectAll = prefs.getString(Config.KEY_SELECT_ALL, "z");
-            config.cut = prefs.getString(Config.KEY_CUT, "x");
-            config.copy = prefs.getString(Config.KEY_COPY, "c");
-            config.paste = prefs.getString(Config.KEY_PASTE, "v");
-            config.copyAll = prefs.getString(Config.KEY_COPY_ALL, "");
-            config.cutAll = prefs.getString(Config.KEY_CUT_ALL, "");
-            config.paragraphStart = prefs.getString(Config.KEY_PARAGRAPH_START, "");
-            config.paragraphEnd = prefs.getString(Config.KEY_PARAGRAPH_END, "");
-            config.selectToParagraphStart = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_START, "");
-            config.selectToParagraphEnd = prefs.getString(Config.KEY_SELECT_TO_PARAGRAPH_END, "");
-            config.documentStart = prefs.getString(Config.KEY_DOCUMENT_START, "");
-            config.documentEnd = prefs.getString(Config.KEY_DOCUMENT_END, "");
-            config.selectToDocumentStart = prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_START, "");
-            config.selectToDocumentEnd = prefs.getString(Config.KEY_SELECT_TO_DOCUMENT_END, "");
-            config.openClipboard = prefs.getString(Config.KEY_OPEN_CLIPBOARD, "");
-            config.openQuickPhrase = prefs.getString(Config.KEY_OPEN_QUICK_PHRASE, "");
-            config.undo = prefs.getString(Config.KEY_UNDO, "");
-            config.redo = prefs.getString(Config.KEY_REDO, "");
-            config.nextInputMethod = prefs.getString(Config.KEY_NEXT_INPUT_METHOD, "");
-            config.previousInputMethod = prefs.getString(Config.KEY_PREVIOUS_INPUT_METHOD, "");
-            config.showInputMethodPicker = prefs.getString(Config.KEY_SHOW_INPUT_METHOD_PICKER, "");
-            config.disabledKeys = prefs.getString(Config.KEY_DISABLED_KEYS, "");
-            config.thresholdDp = clamp(prefs.getInt(Config.KEY_THRESHOLD, 12), 6, 40, 12);
-            config.t9ThresholdDp = clamp(prefs.getInt(Config.KEY_T9_THRESHOLD, 20), 10, 48, 20);
-            config.vibration = prefs.getBoolean(Config.KEY_VIBRATION, true);
-            config.showKeyLabels = prefs.getBoolean(Config.KEY_SHOW_KEY_LABELS, true);
-            config.showTriggerHint = prefs.getBoolean(Config.KEY_SHOW_TRIGGER_HINT, true);
-            config.revision = prefs.getInt(Config.KEY_REVISION, 0);
-            for (char key = 'a'; key <= 'z'; key++) {
-                config.qwertyLabels[key - 'a'] = Config.normalizeLabelValue(
-                        prefs.getString(Config.qwertyLabelPrefKey(key), ""));
-                config.qwertyTexts[key - 'a'] = Config.normalizeInsertedText(
-                        prefs.getString(Config.qwertyTextPrefKey(key), ""));
-            }
-            for (int digit = 2; digit <= 9; digit++) {
-                config.t9Actions[digit] = Config.validAction(
-                        prefs.getInt(Config.t9PrefKey(digit), Config.ACTION_NONE));
-                config.t9Labels[digit] = Config.normalizeLabelValue(
-                        prefs.getString(Config.t9LabelPrefKey(digit), ""));
-                config.t9Texts[digit] = Config.normalizeInsertedText(
-                        prefs.getString(Config.t9TextPrefKey(digit), ""));
-            }
-            config.rebuildActionMap();
-            cachedConfig = config;
-                        nativeSingleKeyLabelCache.clear();
-            targetCacheLoaded = true;
-        } catch (Throwable throwable) {
-            targetCacheLoaded = false;
-            logError("target config cache load failed", throwable);
-        }
-    }
-
-    private static int clamp(int value, int min, int max, int fallback) {
-        return value < min || value > max ? fallback : value;
+        configBridge.ensureSync(context);
     }
 
     private Object interceptDispatchTouch(XposedInterface.Chain chain) throws Throwable {
@@ -598,16 +364,16 @@ public final class MainHook extends XposedModule {
 
         View view = (View) target;
         MotionEvent event = (MotionEvent) eventObject;
+        int actionMasked = event.getActionMasked();
 
-        // This View.dispatchTouchEvent hook is the same proven chain used by the keyboard
-        // gesture feature. Run the hidden settings detector before filtering to keyboard views.
-        tryHandleEmbeddedSettingsUnlock(view, event);
+        if (actionMasked == MotionEvent.ACTION_UP) {
+            tryHandleEmbeddedSettingsUnlock(view, event);
+        }
 
         Class<?> keyboardBase = keyboardBaseClass;
-
         if (keyboardBase == null) {
-            if (event.getActionMasked() != MotionEvent.ACTION_DOWN) return chain.proceed();
-            keyboardBase = findKeyboardBase(view.getClass());
+            if (actionMasked != MotionEvent.ACTION_DOWN) return chain.proceed();
+            keyboardBase = KeyboardCompat.findKeyboardBase(view.getClass());
             if (keyboardBase == null) return chain.proceed();
             keyboardBaseClass = keyboardBase;
             logInfo("keyboard class cached: " + keyboardBase.getName());
@@ -615,39 +381,72 @@ public final class MainHook extends XposedModule {
             return chain.proceed();
         }
 
-        if (isHandwritingContext(view)) {
+        KeyboardRuntimeState runtime = runtimeStateFor(view);
+        if (runtime.handwriting) {
             tracker.clear(view);
-            view.post(() -> hideKeyboardHint(0L));
+            if (actionMasked == MotionEvent.ACTION_DOWN || actionMasked == MotionEvent.ACTION_UP) {
+                view.post(() -> hideKeyboardHint(0L));
+            }
             return chain.proceed();
         }
 
-        ensureKeyboardLabelDrawHook(view.getClass(), view);
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && !targetCacheLoaded) {
-            ensureConfigSync(view.getContext());
+        if (actionMasked == MotionEvent.ACTION_DOWN) {
+            maybeEnsureNativeSingleKeyDrawHooks(view);
+            ensureKeyboardLabelDrawHook(view.getClass(), view);
+            if (!configBridge.isLoaded()) ensureConfigSync(view.getContext());
         }
         return interceptKeyboardTouch(chain, view, event);
     }
 
-    private synchronized void ensureKeyboardLabelDrawHook(Class<?> keyboardClass, View keyboard) {
-        if (keyboardClass == null || keyboard == null) return;
+    private KeyboardRuntimeState runtimeStateFor(View keyboard) {
+        View cachedView = runtimeKeyboardRef.get();
+        KeyboardRuntimeState cached = runtimeKeyboardState;
+        if (cachedView == keyboard && cached != null) return cached;
+        KeyboardRuntimeState resolved = KeyboardRuntimeState.from(keyboard);
+        runtimeKeyboardRef = new WeakReference<>(keyboard);
+        runtimeKeyboardState = resolved;
+        return resolved;
+    }
+
+    private void maybeEnsureNativeSingleKeyDrawHooks(View keyboard) {
+        if (nativeSingleKeyHooksResolved || keyboard == null) return;
+        long now = SystemClock.uptimeMillis();
+        if (now < nativeSingleKeyNextResolveAtMs) return;
+        nativeSingleKeyNextResolveAtMs = now + 2000L;
         ensureNativeSingleKeyDrawHooks(keyboard);
-        Method drawMethod = findKeyboardDrawMethod(keyboardClass, "onDraw");
-        if (drawMethod == null) drawMethod = findKeyboardDrawMethod(keyboardClass, "dispatchDraw");
-        if (drawMethod == null || keyboardLabelHookedMethods.putIfAbsent(drawMethod, Boolean.TRUE) != null) return;
-        try {
-            hookAfter(drawMethod, chain -> {
-                Object target = chain.getThisObject();
-                Object canvas = chain.getArg(0);
-                if (target instanceof View && canvas instanceof Canvas) {
-                    drawKeyboardFunctionLabels((View) target, (Canvas) canvas);
-                }
-            });
-            keyboard.postInvalidate();
-            logInfo("keyboard function-label draw hook installed for "
-                    + drawMethod.getDeclaringClass().getName() + '#' + drawMethod.getName());
-        } catch (Throwable throwable) {
-            keyboardLabelHookedMethods.remove(drawMethod);
-            logError("keyboard function-label draw hook failed", throwable);
+    }
+
+    private void ensureKeyboardLabelDrawHook(Class<?> keyboardClass, View keyboard) {
+        if (keyboardClass == null || keyboard == null
+                || keyboardDrawPreparedClasses.containsKey(keyboardClass)) return;
+        synchronized (this) {
+            if (keyboardDrawPreparedClasses.containsKey(keyboardClass)) return;
+            Method drawMethod = findKeyboardDrawMethod(keyboardClass, "onDraw");
+            if (drawMethod == null) drawMethod = findKeyboardDrawMethod(keyboardClass, "dispatchDraw");
+            if (drawMethod == null) {
+                keyboardDrawPreparedClasses.put(keyboardClass, Boolean.TRUE);
+                return;
+            }
+            if (keyboardLabelHookedMethods.putIfAbsent(drawMethod, Boolean.TRUE) != null) {
+                keyboardDrawPreparedClasses.put(keyboardClass, Boolean.TRUE);
+                return;
+            }
+            try {
+                hookAfter(drawMethod, chain -> {
+                    Object target = chain.getThisObject();
+                    Object canvas = chain.getArg(0);
+                    if (target instanceof View && canvas instanceof Canvas) {
+                        drawKeyboardFunctionLabels((View) target, (Canvas) canvas);
+                    }
+                });
+                keyboardDrawPreparedClasses.put(keyboardClass, Boolean.TRUE);
+                keyboard.postInvalidate();
+                logInfo("keyboard function-label draw hook installed for "
+                        + drawMethod.getDeclaringClass().getName() + '#' + drawMethod.getName());
+            } catch (Throwable throwable) {
+                keyboardLabelHookedMethods.remove(drawMethod);
+                logError("keyboard function-label draw hook failed", throwable);
+            }
         }
     }
 
@@ -666,7 +465,7 @@ public final class MainHook extends XposedModule {
             for (String className : drawerClasses) {
                 try {
                     Class<?> drawerClass = Class.forName(className, false, loader);
-                    Method method = findMethod(drawerClass, "a",
+                    Method method = Reflector.findMethod(drawerClass, "a",
                             new Class<?>[]{Canvas.class, modelClass});
                     if (method == null
                             || nativeSingleKeyHookedMethods.putIfAbsent(method, Boolean.TRUE) != null) {
@@ -704,7 +503,7 @@ public final class MainHook extends XposedModule {
         View keyboard = nativeSingleKeyParent(model);
         Rect drawRect = nativeSingleKeyDrawRect(model);
         if (keyboard == null || drawRect == null || drawRect.isEmpty()) return;
-        if (isHandwritingContext(keyboard)) {
+        if (runtimeStateFor(keyboard).handwriting) {
             nativeSingleKeyLabelCache.remove(model);
             return;
         }
@@ -720,15 +519,13 @@ public final class MainHook extends XposedModule {
         }
 
         if (currentEditorPassword) return;
-        Config displayConfig = cachedConfig;
-        if (displayConfig == null || !displayConfig.showKeyLabels) return;
-        Config config = cachedConfig;
+        Config config = configBridge.current();
         if (config == null || !config.hasAnyBinding() || !config.showKeyLabels) return;
 
         // Native key models are reused when switching to number/symbol pages. Their layout id
         // still points at the original QWERTY position, so using that id alone leaks labels onto
         // symbol keys. Resolve the currently visible key text and include it in the cache value.
-        KeyInfo visibleKey = visibleKeyFromButton(model);
+        KeyInfo visibleKey = keyResolver.visibleKeyFromButton(model);
         if (visibleKey == null) {
             nativeSingleKeyLabelCache.remove(model);
             return;
@@ -768,7 +565,7 @@ public final class MainHook extends XposedModule {
             } catch (Throwable ignored) {
             }
         }
-        Object value = invoke(model, "W");
+        Object value = reflector.invoke(model, "W");
         return value instanceof View ? (View) value : null;
     }
 
@@ -782,7 +579,7 @@ public final class MainHook extends XposedModule {
             } catch (Throwable ignored) {
             }
         }
-        Object value = invoke(model, "t");
+        Object value = reflector.invoke(model, "t");
         return value instanceof Rect ? (Rect) value : null;
     }
 
@@ -806,16 +603,12 @@ public final class MainHook extends XposedModule {
 
     private void ensureNativeSingleKeyPaint(View keyboard, Rect drawRect) {
         if (keyboard == null || drawRect == null) return;
-        int night = keyboard.getResources().getConfiguration().uiMode
-                & Configuration.UI_MODE_NIGHT_MASK;
+        int night = resolveLiveNightMode(keyboard);
         int density = Float.floatToIntBits(
                 keyboard.getResources().getDisplayMetrics().scaledDensity);
         int keyHeight = Math.max(1, drawRect.height());
-        long signature = (((long) keyboard.getWidth()) << 40)
-                ^ (((long) keyboard.getHeight()) << 16)
-                ^ (((long) keyHeight) << 4)
-                ^ (((long) night) << 2)
-                ^ (density & 0xffffffffL);
+        long signature = KeyboardThemeState.paintSignature(
+                keyboard.getWidth(), keyboard.getHeight(), keyHeight, density, night);
         if (signature == nativeSingleKeyPaintSignature) return;
         prepareKeyboardLabelPaint(keyboard);
         float scaledDensity = keyboard.getResources().getDisplayMetrics().scaledDensity;
@@ -843,22 +636,16 @@ public final class MainHook extends XposedModule {
 
     private void drawKeyboardFunctionLabels(View keyboard, Canvas canvas) {
         if (keyboard == null || canvas == null || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
-        if (isHandwritingContext(keyboard)) return;
-        Config config = cachedConfig;
-        if (config == null || !config.hasAnyBinding()) return;
+        KeyboardRuntimeState runtime = runtimeStateFor(keyboard);
+        if (runtime.handwriting || currentEditorPassword) return;
+        Config config = configBridge.current();
+        if (config == null || !config.hasAnyBinding() || !config.showKeyLabels) return;
         try {
-            InputMethodService ime = imeRef.get();
-            EditorInfo editorInfo = ime == null ? null : ime.getCurrentInputEditorInfo();
-            if (editorInfo != null && isPassword(editorInfo.inputType)) return;
-
-            ensureNativeSingleKeyDrawHooks(keyboard);
             if (nativeSingleKeyActiveKeyboardRef.get() == keyboard) return;
-
-            String name = keyboard.getClass().getName().toLowerCase(Locale.ROOT);
             prepareKeyboardLabelPaint(keyboard);
-            if (name.contains("t9") || name.contains("nine")) {
+            if (runtime.mode == KeyboardRuntimeState.Mode.T9) {
                 drawT9FunctionLabels(keyboard, canvas, config);
-            } else if (name.contains("qwerty") || name.contains("wubi") || name.contains("pinyin")) {
+            } else if (runtime.mode == KeyboardRuntimeState.Mode.QWERTY) {
                 ensureKeyboardLabelGeometry(keyboard);
                 drawQwertyFunctionLabels(keyboard, canvas, config);
             }
@@ -867,13 +654,57 @@ public final class MainHook extends XposedModule {
         }
     }
 
+    private int resolveLiveNightMode(View keyboard) {
+        int cached = liveNightMode;
+        if (cached == Configuration.UI_MODE_NIGHT_NO
+                || cached == Configuration.UI_MODE_NIGHT_YES) return cached;
+        if (keyboard == null) return Configuration.UI_MODE_NIGHT_UNDEFINED;
+
+        int keyboardUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+        int applicationUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+        int imeUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+        try {
+            keyboardUiMode = keyboard.getResources().getConfiguration().uiMode;
+            Context application = keyboard.getContext().getApplicationContext();
+            if (application != null) applicationUiMode = application.getResources().getConfiguration().uiMode;
+        } catch (Throwable ignored) {}
+        InputMethodService ime = imeRef.get();
+        if (ime != null) {
+            try { imeUiMode = ime.getResources().getConfiguration().uiMode; } catch (Throwable ignored) {}
+        }
+        int resolved = KeyboardThemeState.resolveNightMode(keyboardUiMode, applicationUiMode, imeUiMode);
+        refreshLiveNightMode(resolved, keyboard);
+        return resolved;
+    }
+
+    private void refreshLiveNightMode(int uiMode, View sourceKeyboard) {
+        int resolved = KeyboardThemeState.resolveNightMode(
+                Configuration.UI_MODE_NIGHT_UNDEFINED, uiMode, Configuration.UI_MODE_NIGHT_UNDEFINED);
+        if (resolved != Configuration.UI_MODE_NIGHT_NO
+                && resolved != Configuration.UI_MODE_NIGHT_YES) return;
+        int previous = liveNightMode;
+        if (previous == resolved) return;
+        liveNightMode = resolved;
+        lastResolvedNightMode = resolved;
+        nativeSingleKeyPaintSignature = Long.MIN_VALUE;
+        View active = nativeSingleKeyActiveKeyboardRef.get();
+        if (active != null) active.postInvalidate();
+        View runtime = runtimeKeyboardRef.get();
+        if (runtime != null && runtime != active) runtime.postInvalidate();
+        if (sourceKeyboard != null && sourceKeyboard != active && sourceKeyboard != runtime) {
+            sourceKeyboard.postInvalidate();
+        }
+        if (previous != Configuration.UI_MODE_NIGHT_UNDEFINED) {
+            logInfo("keyboard label theme refreshed: " + previous + " -> " + resolved);
+        }
+    }
+
     private void prepareKeyboardLabelPaint(View keyboard) {
         float scaledDensity = keyboard.getResources().getDisplayMetrics().scaledDensity;
         float estimatedKeyHeight = keyboard.getHeight() / 4f;
         float keyHeightBased = estimatedKeyHeight * 0.145f;
         float textSize = Math.max(5.8f * scaledDensity, Math.min(8.0f * scaledDensity, keyHeightBased));
-        boolean night = (keyboard.getResources().getConfiguration().uiMode
-                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        boolean night = KeyboardThemeState.isNight(resolveLiveNightMode(keyboard));
         keyboardLabelPaint.reset();
         keyboardLabelPaint.setAntiAlias(true);
         keyboardLabelPaint.setTextAlign(Paint.Align.CENTER);
@@ -992,8 +823,8 @@ public final class MainHook extends XposedModule {
         try {
             if (keyboard == null || !keyboard.isAttachedToWindow()
                     || keyboard.getWidth() <= 0 || keyboard.getHeight() <= 0) return;
-            Method idsMethod = findMethod(keyboard.getClass(), "getKeyIdsForLayoutInfo", new Class<?>[0]);
-            Method layoutMethod = findMethod(keyboard.getClass(), "getKeysLayoutInfo", new Class<?>[0]);
+            Method idsMethod = Reflector.findMethod(keyboard.getClass(), "getKeyIdsForLayoutInfo", new Class<?>[0]);
+            Method layoutMethod = Reflector.findMethod(keyboard.getClass(), "getKeysLayoutInfo", new Class<?>[0]);
             if (idsMethod == null || layoutMethod == null) {
                 publishNativeKeyboardLabelGeometry(keyboard, expectedClass, new HashMap<>(), false);
                 return;
@@ -1117,8 +948,8 @@ public final class MainHook extends XposedModule {
     private String readNativeLayoutSignature(View keyboard) {
         if (keyboard == null) return "";
         try {
-            Method idsMethod = findMethod(keyboard.getClass(), "getKeyIdsForLayoutInfo", new Class<?>[0]);
-            Method layoutMethod = findMethod(keyboard.getClass(), "getKeysLayoutInfo", new Class<?>[0]);
+            Method idsMethod = Reflector.findMethod(keyboard.getClass(), "getKeyIdsForLayoutInfo", new Class<?>[0]);
+            Method layoutMethod = Reflector.findMethod(keyboard.getClass(), "getKeysLayoutInfo", new Class<?>[0]);
             if (idsMethod == null || layoutMethod == null) return "";
             idsMethod.setAccessible(true);
             layoutMethod.setAccessible(true);
@@ -1409,9 +1240,9 @@ public final class MainHook extends XposedModule {
         long now = SystemClock.uptimeMillis();
         MotionEvent event = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
         try {
-            Object button = invoke(keyboard, "v1", event, false);
-            if (button == null) button = invoke(keyboard, "v1", event, true);
-            KeyInfo info = keyFromButton(keyboard, button);
+            Object button = reflector.invoke(keyboard, "v1", event, false);
+            if (button == null) button = reflector.invoke(keyboard, "v1", event, true);
+            KeyInfo info = keyResolver.keyFromButton(keyboard, button);
             return info == null || info.t9 ? null : info.key;
         } catch (Throwable ignored) {
             return null;
@@ -1456,49 +1287,6 @@ public final class MainHook extends XposedModule {
         return Config.shortActionLabel(action);
     }
 
-    private static Class<?> findKeyboardBase(Class<?> type) {
-        for (int i = 0; type != null && i < 12; i++, type = type.getSuperclass()) {
-            String name = type.getName();
-            if (LEGACY_KEYBOARD_BASE.equals(name) || WETYPE_4_KEYBOARD_BASE.equals(name)) {
-                return type;
-            }
-            // WeType 4.0.0 changed the obfuscated self-draw base from `n` to `o`.
-            // Keep a structural fallback so future one-letter renames do not disable the
-            // whole module again. Only accept a selfdraw View class that declares both
-            // stable keyboard accessors on that exact class (not inherited by a concrete
-            // QWERTY/T9 subclass), otherwise caching one layout would exclude the others.
-            if (name.startsWith(SELF_DRAW_PREFIX)
-                    && View.class.isAssignableFrom(type)
-                    && declaresNoArg(type, "getActionButton")
-                    && declaresNoArg(type, "getKeysLayoutInfo")) {
-                return type;
-            }
-        }
-        return null;
-    }
-
-    private static boolean declaresNoArg(Class<?> type, String name) {
-        if (type == null || name == null) return false;
-        try {
-            type.getDeclaredMethod(name);
-            return true;
-        } catch (NoSuchMethodException ignored) {
-            return false;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private static boolean isHandwritingContext(View keyboard) {
-        View current = keyboard;
-        for (int depth = 0; current != null && depth < 16; depth++) {
-            if (KeyboardModeGuard.isHandwritingClassName(current.getClass().getName())) return true;
-            Object parent = current.getParent();
-            current = parent instanceof View ? (View) parent : null;
-        }
-        return false;
-    }
-
     private Object interceptKeyboardTouch(XposedInterface.Chain chain, View keyboard, MotionEvent event) throws Throwable {
         final int maskedAction = event.getActionMasked();
         if (event.getPointerCount() != 1) {
@@ -1509,7 +1297,7 @@ public final class MainHook extends XposedModule {
             return chain.proceed();
         }
 
-        Config config = cachedConfig;
+        Config config = configBridge.current();
         if (maskedAction != MotionEvent.ACTION_DOWN
                 && !config.hasAnyBinding()
                 && !tracker.matches(keyboard)) return chain.proceed();
@@ -1518,7 +1306,7 @@ public final class MainHook extends XposedModule {
             tracker.begin(keyboard, event.getX(), event.getY());
             Object result = chain.proceed();
 
-            KeyInfo keyInfo = keyAfterDown(keyboard, event);
+            KeyInfo keyInfo = keyResolver.keyAfterDown(keyboard, event);
 
 
             int requestedAction = keyInfo == null
@@ -1567,7 +1355,7 @@ public final class MainHook extends XposedModule {
 
                 proceedWithCancel(chain, event);
 
-                Config latest = cachedConfig;
+                Config latest = configBridge.current();
                 if (latest.vibration) {
                     try { keyboard.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); }
                     catch (Throwable ignored) {}
@@ -1592,7 +1380,7 @@ public final class MainHook extends XposedModule {
     }
 
     private void showKeyboardHint(View keyboard, String keyLabel, int action, boolean executed) {
-        Config displayConfig = cachedConfig;
+        Config displayConfig = configBridge.current();
         if (displayConfig == null || !displayConfig.showTriggerHint) {
             hideKeyboardHint(0L);
             return;
@@ -1781,223 +1569,6 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private KeyInfo keyAfterDown(Object keyboard, MotionEvent event) {
-        Object button = invoke(keyboard, "getActionButton");
-        if (button == null) button = invoke(keyboard, "v1", event, false);
-        if (button == null) button = invoke(keyboard, "v1", event, true);
-        return keyFromButton(keyboard, button);
-    }
-
-    private KeyInfo visibleKeyFromButton(Object button) {
-        if (button == null) return null;
-        Object keyData = invoke(button, "O");
-        if (keyData == null) return null;
-        Object main = invoke(keyData, "getMainText");
-        Object secondary = firstNonNull(
-                invoke(keyData, "getSubText"),
-                invoke(keyData, "getSecondaryText"),
-                invoke(keyData, "getHintText"),
-                invoke(keyData, "getAssistText"));
-        return keyFromTexts(main, secondary);
-    }
-
-    private KeyInfo keyFromButton(Object keyboard, Object button) {
-        if (button == null) return null;
-        Object keyData = invoke(button, "O");
-        if (keyData != null) {
-            Object main = invoke(keyData, "getMainText");
-            Object secondary = firstNonNull(
-                    invoke(keyData, "getSubText"),
-                    invoke(keyData, "getSecondaryText"),
-                    invoke(keyData, "getHintText"),
-                    invoke(keyData, "getAssistText"));
-            KeyInfo key = keyFromTexts(main, secondary);
-            if (key != null) return key;
-            if (isT9Context(keyboard, button, keyData)) {
-                String numeric = numericT9Key(main);
-                if (numeric != null) return KeyInfo.t9(numeric);
-            }
-
-            Object id = invoke(keyData, "getId");
-            key = keyFromId(id, keyboard, button, keyData);
-            if (key != null) return key;
-        }
-        return keyFromId(invoke(button, "K"), keyboard, button, keyData);
-    }
-
-    private static Object firstNonNull(Object... values) {
-        for (Object value : values) if (value != null) return value;
-        return null;
-    }
-
-    private static KeyInfo keyFromTexts(Object mainValue, Object secondaryValue) {
-        String main = normalizeText(mainValue);
-        String secondary = normalizeText(secondaryValue);
-        String combined = main + secondary;
-
-        String digit = t9DigitFromLetters(combined);
-        if (digit != null) return KeyInfo.t9(digit);
-
-        if (main.length() == 1) {
-            char c = main.charAt(0);
-            if (c >= 'a' && c <= 'z') return KeyInfo.alpha(String.valueOf(c));
-        }
-        return null;
-    }
-
-    private static String normalizeText(Object value) {
-        if (value == null) return "";
-        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
-        StringBuilder clean = null;
-        for (int index = 0; index < text.length(); index++) {
-            char c = text.charAt(index);
-            boolean allowed = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
-            if (allowed) {
-                if (clean != null) clean.append(c);
-            } else if (clean == null) {
-                clean = new StringBuilder(text.length());
-                clean.append(text, 0, index);
-            }
-        }
-        return clean == null ? text : clean.toString();
-    }
-
-    private static String numericT9Key(Object value) {
-        String text = normalizeText(value);
-        if (text.length() == 1) {
-            char c = text.charAt(0);
-            if (c >= '2' && c <= '9') return String.valueOf(c);
-        }
-        return null;
-    }
-
-    private static String t9DigitFromLetters(String value) {
-        if (value == null || value.isEmpty()) return null;
-        if (lettersMatch(value, "abc")) return "2";
-        if (lettersMatch(value, "def")) return "3";
-        if (lettersMatch(value, "ghi")) return "4";
-        if (lettersMatch(value, "jkl")) return "5";
-        if (lettersMatch(value, "mno")) return "6";
-        if (lettersMatch(value, "pqrs")) return "7";
-        if (lettersMatch(value, "tuv")) return "8";
-        if (lettersMatch(value, "wxyz")) return "9";
-        return null;
-    }
-
-    private static boolean lettersMatch(String value, String expected) {
-        int matched = 0;
-        for (int index = 0; index < value.length(); index++) {
-            char c = value.charAt(index);
-            if (c < 'a' || c > 'z') continue;
-            if (matched >= expected.length() || c != expected.charAt(matched)) return false;
-            matched++;
-        }
-        return matched == expected.length();
-    }
-
-    private static KeyInfo keyFromId(Object value, Object keyboard, Object button, Object keyData) {
-        if (value == null) return null;
-        String text = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
-
-        int index = text.lastIndexOf("_key_");
-        String tail = index >= 0 ? text.substring(index + 5) : text;
-        if (tail.length() == 1) {
-            char c = tail.charAt(0);
-            if (c >= 'a' && c <= 'z') return KeyInfo.alpha(String.valueOf(c));
-        }
-        if (!tail.isEmpty()) {
-            char last = tail.charAt(tail.length() - 1);
-            if (last >= 'a' && last <= 'z'
-                    && (tail.endsWith("_" + last) || tail.endsWith("key" + last))) {
-                return KeyInfo.alpha(String.valueOf(last));
-            }
-        }
-
-        boolean t9Hint = text.contains("t9") || text.contains("nine")
-                || isT9Context(keyboard, button, keyData);
-        if (t9Hint) {
-            for (int i = text.length() - 1; i >= 0; i--) {
-                char c = text.charAt(i);
-                if (c >= '2' && c <= '9') return KeyInfo.t9(String.valueOf(c));
-            }
-        }
-        return null;
-    }
-
-    private static boolean isT9Context(Object... values) {
-        for (Object value : values) {
-            String name = className(value);
-            if (name.contains("t9") || name.contains("nine")) return true;
-        }
-        return false;
-    }
-
-    private static String className(Object value) {
-        return value == null ? "" : value.getClass().getName().toLowerCase(Locale.ROOT);
-    }
-
-    private Object invoke(Object target, String name, Object... args) {
-        if (target == null) return null;
-        try {
-            Class<?>[] parameterTypes = new Class<?>[args.length];
-            for (int i = 0; i < args.length; i++) {
-                Object arg = args[i];
-                if (arg instanceof MotionEvent) parameterTypes[i] = MotionEvent.class;
-                else if (arg instanceof Boolean) parameterTypes[i] = boolean.class;
-                else if (arg instanceof Integer) parameterTypes[i] = int.class;
-                else parameterTypes[i] = arg == null ? Object.class : arg.getClass();
-            }
-            String cacheKey = target.getClass().getName() + '#' + name + signature(parameterTypes);
-            Method method = methodCache.get(cacheKey);
-            if (method == null) {
-                method = findMethod(target.getClass(), name, parameterTypes);
-                if (method == null) return null;
-                Method previous = methodCache.putIfAbsent(cacheKey, method);
-                if (previous != null) method = previous;
-            }
-            return method.invoke(target, args);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static String signature(Class<?>[] types) {
-        StringBuilder value = new StringBuilder(types.length * 12);
-        for (Class<?> type : types) value.append(':').append(type.getName());
-        return value.toString();
-    }
-
-    private static Method findMethod(Class<?> type, String name, Class<?>[] parameterTypes) {
-        for (Class<?> current = type; current != null; current = current.getSuperclass()) {
-            try {
-                Method method = current.getDeclaredMethod(name, parameterTypes);
-                method.setAccessible(true);
-                return method;
-            } catch (NoSuchMethodException ignored) {}
-        }
-        return null;
-    }
-
-    private static final class KeyInfo {
-        final String key;
-        final String display;
-        final boolean t9;
-
-        private KeyInfo(String key, String display, boolean t9) {
-            this.key = key;
-            this.display = display;
-            this.t9 = t9;
-        }
-
-        static KeyInfo alpha(String key) {
-            return new KeyInfo(key, key.toUpperCase(Locale.ROOT), false);
-        }
-
-        static KeyInfo t9(String digit) {
-            return new KeyInfo(digit, "九宫格 " + Config.t9Label(digit.charAt(0) - '0'), true);
-        }
-    }
-
     private void performAction(Context context, View keyboard, int action, String key) {
         String actionName = Config.actionName(action);
         try {
@@ -2009,7 +1580,7 @@ public final class MainHook extends XposedModule {
             }
             imeRef = new WeakReference<>(ime);
 
-            if (isInputMethodAction(action)) {
+            if (ActionRegistry.isInputMethodAction(action)) {
                 hideKeyboardHint(0L);
                 if (!performInputMethodAction(ime, action)) {
                     logError(actionName + " failed: system rejected input-method action", null);
@@ -2020,7 +1591,7 @@ public final class MainHook extends XposedModule {
             EditorInfo editorInfo = ime.getCurrentInputEditorInfo();
             if (editorInfo != null && isPassword(editorInfo.inputType)) return;
 
-            if (isNativePanelAction(action)) {
+            if (ActionRegistry.isNativePanelAction(action)) {
                 hideKeyboardHint(0L);
                 if (!openNativePanel(ime, keyboard, action)) {
                     logError(actionName + " failed: native entry not found", null);
@@ -2037,14 +1608,14 @@ public final class MainHook extends XposedModule {
             boolean success;
             if (action == Config.ACTION_INSERT_TEXT) {
                 boolean t9 = key != null && key.length() == 1 && key.charAt(0) >= '2' && key.charAt(0) <= '9';
-                success = performInsertText(connection, cachedConfig.textFor(key, t9));
-            } else if (isDocumentAction(action)) {
+                success = performInsertText(connection, configBridge.current().textFor(key, t9));
+            } else if (ActionRegistry.isDocumentAction(action)) {
                 success = performDocumentAction(connection, action);
-            } else if (isParagraphAction(action)) {
+            } else if (ActionRegistry.isParagraphAction(action)) {
                 success = performParagraphAction(connection, action);
-            } else if (isCompoundAction(action)) {
+            } else if (ActionRegistry.isCompoundAction(action)) {
                 success = performCompoundAction(ime, keyboard, connection, action);
-            } else if (isEditorHistoryAction(action)) {
+            } else if (ActionRegistry.isEditorHistoryAction(action)) {
                 success = performEditorHistoryAction(ime, connection, action);
             } else {
                 success = performMenuAction(ime, connection, Config.menuIdFor(action));
@@ -2055,11 +1626,6 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private static boolean isInputMethodAction(int action) {
-        return action == Config.ACTION_NEXT_INPUT_METHOD
-                || action == Config.ACTION_PREVIOUS_INPUT_METHOD
-                || action == Config.ACTION_SHOW_INPUT_METHOD_PICKER;
-    }
 
     private boolean performInputMethodAction(InputMethodService ime, int action) {
         if (ime == null) return false;
@@ -2081,13 +1647,7 @@ public final class MainHook extends XposedModule {
         return connection.commitText(value, 1);
     }
 
-    private static boolean isCompoundAction(int action) {
-        return action == Config.ACTION_COPY_ALL || action == Config.ACTION_CUT_ALL;
-    }
 
-    private static boolean isEditorHistoryAction(int action) {
-        return action == Config.ACTION_UNDO || action == Config.ACTION_REDO;
-    }
 
     private boolean performEditorHistoryAction(InputMethodService ime,
                                                InputConnection connection, int action) {
@@ -2129,10 +1689,6 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private static boolean isNativePanelAction(int action) {
-        return action == Config.ACTION_OPEN_CLIPBOARD
-                || action == Config.ACTION_OPEN_QUICK_PHRASE;
-    }
 
     private boolean openNativePanel(InputMethodService ime, View keyboard, int action) {
         View root = keyboardWindowRoot(keyboard);
@@ -2269,7 +1825,7 @@ public final class MainHook extends XposedModule {
         Method invokeMethod = findCompatibleInvoke(callback.getClass());
         if (invokeMethod == null) return false;
         Method directInvokeMethod = layout.weType4Layout
-                ? findMethod(holder.getClass(), "g", new Class<?>[]{View.class})
+                ? Reflector.findMethod(holder.getClass(), "g", new Class<?>[]{View.class})
                 : null;
 
         Object capturedView = readNamedField(callback, "$this_apply");
@@ -2440,12 +1996,6 @@ public final class MainHook extends XposedModule {
         return null;
     }
 
-    private static boolean isDocumentAction(int action) {
-        return action == Config.ACTION_DOCUMENT_START
-                || action == Config.ACTION_DOCUMENT_END
-                || action == Config.ACTION_SELECT_TO_DOCUMENT_START
-                || action == Config.ACTION_SELECT_TO_DOCUMENT_END;
-    }
 
     private boolean performDocumentAction(InputConnection connection, int action) {
         try {
@@ -2483,12 +2033,6 @@ public final class MainHook extends XposedModule {
         return extracted.text.length();
     }
 
-    private static boolean isParagraphAction(int action) {
-        return action == Config.ACTION_PARAGRAPH_START
-                || action == Config.ACTION_PARAGRAPH_END
-                || action == Config.ACTION_SELECT_TO_PARAGRAPH_START
-                || action == Config.ACTION_SELECT_TO_PARAGRAPH_END;
-    }
 
     private boolean performParagraphAction(InputConnection connection, int action) {
         try {
@@ -2625,7 +2169,7 @@ public final class MainHook extends XposedModule {
         } catch (Throwable ignored) {}
 
         try {
-            Method method = findMethod(ime.getClass(), "performContextMenuAction", new Class<?>[]{int.class});
+            Method method = Reflector.findMethod(ime.getClass(), "performContextMenuAction", new Class<?>[]{int.class});
             if (method != null) {
                 Object result = method.invoke(ime, menuId);
                 if (!(result instanceof Boolean) || (Boolean) result) return true;
