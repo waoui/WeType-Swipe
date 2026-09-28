@@ -3,29 +3,7 @@ package com.rww.wetypeswipe;
 import java.util.Arrays;
 
 final class EmbeddedConfigEditor {
-    static final int[] QWERTY_ACTIONS = {
-            Config.ACTION_SELECT_ALL,
-            Config.ACTION_CUT,
-            Config.ACTION_COPY,
-            Config.ACTION_PASTE,
-            Config.ACTION_COPY_ALL,
-            Config.ACTION_CUT_ALL,
-            Config.ACTION_PARAGRAPH_START,
-            Config.ACTION_PARAGRAPH_END,
-            Config.ACTION_SELECT_TO_PARAGRAPH_START,
-            Config.ACTION_SELECT_TO_PARAGRAPH_END,
-            Config.ACTION_OPEN_CLIPBOARD,
-            Config.ACTION_OPEN_QUICK_PHRASE,
-            Config.ACTION_UNDO,
-            Config.ACTION_REDO,
-            Config.ACTION_DOCUMENT_START,
-            Config.ACTION_DOCUMENT_END,
-            Config.ACTION_SELECT_TO_DOCUMENT_START,
-            Config.ACTION_SELECT_TO_DOCUMENT_END,
-            Config.ACTION_NEXT_INPUT_METHOD,
-            Config.ACTION_PREVIOUS_INPUT_METHOD,
-            Config.ACTION_SHOW_INPUT_METHOD_PICKER
-    };
+    static final int[] QWERTY_ACTIONS = ActionRegistry.qwertyActions();
 
     private EmbeddedConfigEditor() {}
 
@@ -101,58 +79,11 @@ final class EmbeddedConfigEditor {
     }
 
     static String keyForAction(Config config, int action) {
-        switch (action) {
-            case Config.ACTION_SELECT_ALL: return config.selectAll;
-            case Config.ACTION_CUT: return config.cut;
-            case Config.ACTION_COPY: return config.copy;
-            case Config.ACTION_PASTE: return config.paste;
-            case Config.ACTION_COPY_ALL: return config.copyAll;
-            case Config.ACTION_CUT_ALL: return config.cutAll;
-            case Config.ACTION_PARAGRAPH_START: return config.paragraphStart;
-            case Config.ACTION_PARAGRAPH_END: return config.paragraphEnd;
-            case Config.ACTION_SELECT_TO_PARAGRAPH_START: return config.selectToParagraphStart;
-            case Config.ACTION_SELECT_TO_PARAGRAPH_END: return config.selectToParagraphEnd;
-            case Config.ACTION_OPEN_CLIPBOARD: return config.openClipboard;
-            case Config.ACTION_OPEN_QUICK_PHRASE: return config.openQuickPhrase;
-            case Config.ACTION_UNDO: return config.undo;
-            case Config.ACTION_REDO: return config.redo;
-            case Config.ACTION_DOCUMENT_START: return config.documentStart;
-            case Config.ACTION_DOCUMENT_END: return config.documentEnd;
-            case Config.ACTION_SELECT_TO_DOCUMENT_START: return config.selectToDocumentStart;
-            case Config.ACTION_SELECT_TO_DOCUMENT_END: return config.selectToDocumentEnd;
-            case Config.ACTION_NEXT_INPUT_METHOD: return config.nextInputMethod;
-            case Config.ACTION_PREVIOUS_INPUT_METHOD: return config.previousInputMethod;
-            case Config.ACTION_SHOW_INPUT_METHOD_PICKER: return config.showInputMethodPicker;
-            default: return "";
-        }
+        return ActionRegistry.keyFor(config, action);
     }
 
     static void setKeyForAction(Config config, int action, String key) {
-        String value = key == null ? "" : key;
-        switch (action) {
-            case Config.ACTION_SELECT_ALL: config.selectAll = value; break;
-            case Config.ACTION_CUT: config.cut = value; break;
-            case Config.ACTION_COPY: config.copy = value; break;
-            case Config.ACTION_PASTE: config.paste = value; break;
-            case Config.ACTION_COPY_ALL: config.copyAll = value; break;
-            case Config.ACTION_CUT_ALL: config.cutAll = value; break;
-            case Config.ACTION_PARAGRAPH_START: config.paragraphStart = value; break;
-            case Config.ACTION_PARAGRAPH_END: config.paragraphEnd = value; break;
-            case Config.ACTION_SELECT_TO_PARAGRAPH_START: config.selectToParagraphStart = value; break;
-            case Config.ACTION_SELECT_TO_PARAGRAPH_END: config.selectToParagraphEnd = value; break;
-            case Config.ACTION_OPEN_CLIPBOARD: config.openClipboard = value; break;
-            case Config.ACTION_OPEN_QUICK_PHRASE: config.openQuickPhrase = value; break;
-            case Config.ACTION_UNDO: config.undo = value; break;
-            case Config.ACTION_REDO: config.redo = value; break;
-            case Config.ACTION_DOCUMENT_START: config.documentStart = value; break;
-            case Config.ACTION_DOCUMENT_END: config.documentEnd = value; break;
-            case Config.ACTION_SELECT_TO_DOCUMENT_START: config.selectToDocumentStart = value; break;
-            case Config.ACTION_SELECT_TO_DOCUMENT_END: config.selectToDocumentEnd = value; break;
-            case Config.ACTION_NEXT_INPUT_METHOD: config.nextInputMethod = value; break;
-            case Config.ACTION_PREVIOUS_INPUT_METHOD: config.previousInputMethod = value; break;
-            case Config.ACTION_SHOW_INPUT_METHOD_PICKER: config.showInputMethodPicker = value; break;
-            default: break;
-        }
+        ActionRegistry.setKey(config, action, key);
     }
 
     private static String removeKey(String keys, String key) {

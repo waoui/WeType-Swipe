@@ -79,41 +79,7 @@ final class Config {
     static final int ACTION_PREVIOUS_INPUT_METHOD = 22;
     static final int ACTION_SHOW_INPUT_METHOD_PICKER = 23;
 
-    static final String[] ACTION_MENU_LABELS = {
-            "未绑定", "全选", "剪切", "复制", "粘贴",
-            "复制全部", "剪切全部",
-            "段首", "段尾", "选至段首", "选至段尾",
-            "文首", "文尾", "选至文首", "选至文尾",
-            "剪贴板", "快捷发送", "撤销", "重做", "输入指定内容",
-            "下一个输入法", "上一个输入法", "选择输入法", "禁用下滑"
-    };
-
-    private static final int[] ACTION_MENU_VALUES = {
-            ACTION_NONE,
-            ACTION_SELECT_ALL,
-            ACTION_CUT,
-            ACTION_COPY,
-            ACTION_PASTE,
-            ACTION_COPY_ALL,
-            ACTION_CUT_ALL,
-            ACTION_PARAGRAPH_START,
-            ACTION_PARAGRAPH_END,
-            ACTION_SELECT_TO_PARAGRAPH_START,
-            ACTION_SELECT_TO_PARAGRAPH_END,
-            ACTION_DOCUMENT_START,
-            ACTION_DOCUMENT_END,
-            ACTION_SELECT_TO_DOCUMENT_START,
-            ACTION_SELECT_TO_DOCUMENT_END,
-            ACTION_OPEN_CLIPBOARD,
-            ACTION_OPEN_QUICK_PHRASE,
-            ACTION_UNDO,
-            ACTION_REDO,
-            ACTION_INSERT_TEXT,
-            ACTION_NEXT_INPUT_METHOD,
-            ACTION_PREVIOUS_INPUT_METHOD,
-            ACTION_SHOW_INPUT_METHOD_PICKER,
-            ACTION_DISABLE
-    };
+    static final String[] ACTION_MENU_LABELS = ActionRegistry.menuLabels();
 
     String selectAll = "z";
     String cut = "x";
@@ -154,27 +120,9 @@ final class Config {
 
     void rebuildActionMap() {
         Arrays.fill(actionMap, ACTION_NONE);
-        bind(selectAll, ACTION_SELECT_ALL);
-        bind(cut, ACTION_CUT);
-        bind(copy, ACTION_COPY);
-        bind(paste, ACTION_PASTE);
-        bind(copyAll, ACTION_COPY_ALL);
-        bind(cutAll, ACTION_CUT_ALL);
-        bind(paragraphStart, ACTION_PARAGRAPH_START);
-        bind(paragraphEnd, ACTION_PARAGRAPH_END);
-        bind(selectToParagraphStart, ACTION_SELECT_TO_PARAGRAPH_START);
-        bind(selectToParagraphEnd, ACTION_SELECT_TO_PARAGRAPH_END);
-        bind(documentStart, ACTION_DOCUMENT_START);
-        bind(documentEnd, ACTION_DOCUMENT_END);
-        bind(selectToDocumentStart, ACTION_SELECT_TO_DOCUMENT_START);
-        bind(selectToDocumentEnd, ACTION_SELECT_TO_DOCUMENT_END);
-        bind(openClipboard, ACTION_OPEN_CLIPBOARD);
-        bind(openQuickPhrase, ACTION_OPEN_QUICK_PHRASE);
-        bind(undo, ACTION_UNDO);
-        bind(redo, ACTION_REDO);
-        bind(nextInputMethod, ACTION_NEXT_INPUT_METHOD);
-        bind(previousInputMethod, ACTION_PREVIOUS_INPUT_METHOD);
-        bind(showInputMethodPicker, ACTION_SHOW_INPUT_METHOD_PICKER);
+        for (int action : ActionRegistry.qwertyActions()) {
+            bind(ActionRegistry.keyFor(this, action), action);
+        }
         for (int i = 0; i < qwertyTexts.length; i++) {
             if (!normalizeInsertedText(qwertyTexts[i]).isEmpty()) actionMap[i] = ACTION_INSERT_TEXT;
         }
@@ -237,21 +185,15 @@ final class Config {
     }
 
     static int validAction(int action) {
-        return action >= ACTION_NONE && action <= ACTION_SHOW_INPUT_METHOD_PICKER
-                ? action : ACTION_NONE;
+        return ActionRegistry.validAction(action);
     }
 
     static int menuPositionForAction(int action) {
-        int checked = validAction(action);
-        for (int i = 0; i < ACTION_MENU_VALUES.length; i++) {
-            if (ACTION_MENU_VALUES[i] == checked) return i;
-        }
-        return 0;
+        return ActionRegistry.menuPositionForAction(action);
     }
 
     static int actionForMenuPosition(int position) {
-        return position >= 0 && position < ACTION_MENU_VALUES.length
-                ? ACTION_MENU_VALUES[position] : ACTION_NONE;
+        return ActionRegistry.actionForMenuPosition(position);
     }
 
     static String qwertyLabelPrefKey(char key) {
@@ -313,31 +255,7 @@ final class Config {
     }
 
     static String shortActionLabel(int action) {
-        switch (validAction(action)) {
-            case ACTION_SELECT_ALL: return "全选";
-            case ACTION_CUT: return "剪切";
-            case ACTION_COPY: return "复制";
-            case ACTION_PASTE: return "粘贴";
-            case ACTION_COPY_ALL: return "全复制";
-            case ACTION_CUT_ALL: return "全剪切";
-            case ACTION_PARAGRAPH_START: return "段首";
-            case ACTION_PARAGRAPH_END: return "段尾";
-            case ACTION_SELECT_TO_PARAGRAPH_START: return "选前";
-            case ACTION_SELECT_TO_PARAGRAPH_END: return "选后";
-            case ACTION_DOCUMENT_START: return "文首";
-            case ACTION_DOCUMENT_END: return "文尾";
-            case ACTION_SELECT_TO_DOCUMENT_START: return "选文首";
-            case ACTION_SELECT_TO_DOCUMENT_END: return "选文尾";
-            case ACTION_OPEN_CLIPBOARD: return "剪贴";
-            case ACTION_OPEN_QUICK_PHRASE: return "快捷";
-            case ACTION_UNDO: return "撤销";
-            case ACTION_REDO: return "重做";
-            case ACTION_INSERT_TEXT: return "文本";
-            case ACTION_NEXT_INPUT_METHOD: return "下个输入";
-            case ACTION_PREVIOUS_INPUT_METHOD: return "上个输入";
-            case ACTION_SHOW_INPUT_METHOD_PICKER: return "选输入法";
-            default: return "";
-        }
+        return ActionRegistry.shortLabel(action);
     }
 
     static String t9PrefKey(int digit) {
@@ -379,31 +297,6 @@ final class Config {
     }
 
     static String actionName(int action) {
-        switch (validAction(action)) {
-            case ACTION_SELECT_ALL: return "全选";
-            case ACTION_CUT: return "剪切";
-            case ACTION_COPY: return "复制";
-            case ACTION_PASTE: return "粘贴";
-            case ACTION_COPY_ALL: return "复制全部";
-            case ACTION_CUT_ALL: return "剪切全部";
-            case ACTION_DISABLE: return "禁用下滑";
-            case ACTION_PARAGRAPH_START: return "段首";
-            case ACTION_PARAGRAPH_END: return "段尾";
-            case ACTION_SELECT_TO_PARAGRAPH_START: return "选至段首";
-            case ACTION_SELECT_TO_PARAGRAPH_END: return "选至段尾";
-            case ACTION_DOCUMENT_START: return "文首";
-            case ACTION_DOCUMENT_END: return "文尾";
-            case ACTION_SELECT_TO_DOCUMENT_START: return "选至文首";
-            case ACTION_SELECT_TO_DOCUMENT_END: return "选至文尾";
-            case ACTION_OPEN_CLIPBOARD: return "剪贴板";
-            case ACTION_OPEN_QUICK_PHRASE: return "快捷发送";
-            case ACTION_UNDO: return "撤销";
-            case ACTION_REDO: return "重做";
-            case ACTION_INSERT_TEXT: return "输入指定内容";
-            case ACTION_NEXT_INPUT_METHOD: return "下一个输入法";
-            case ACTION_PREVIOUS_INPUT_METHOD: return "上一个输入法";
-            case ACTION_SHOW_INPUT_METHOD_PICKER: return "选择输入法";
-            default: return "未绑定";
-        }
+        return ActionRegistry.name(action);
     }
 }
