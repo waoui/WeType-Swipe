@@ -1,0 +1,123 @@
+name: 正式化 v1.11.8 源码
+
+on:
+  push:
+    branches:
+      - release/v1.11.8
+    paths:
+      - ".github/workflows/promote-v1.11.8.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出正式分支
+        uses: actions/checkout@v4
+        with:
+          ref: release/v1.11.8
+          fetch-depth: 0
+
+      - name: 生成正式源码
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "release/v1.11.8"
+          git fetch origin codex/input-method-actions-v1.11.8-test1
+          mkdir -p tools
+          git show origin/codex/input-method-actions-v1.11.8-test1:tools/patch_input_method_actions_test.py > tools/patch_input_method_actions_test.py
+          python3 tools/patch_input_method_actions_test.py
+
+          sed -i 's/^VERSION_CODE=54$/VERSION_CODE=55/' gradle.properties
+          sed -i 's/^VERSION_NAME=1.11.8-test1$/VERSION_NAME=1.11.8/' gradle.properties
+          sed -i 's/v1\.11\.8-test1 · 输入法切换测试/v1.11.8 · 系统输入法切换/' app/src/main/java/com/rww/wetypeswipe/MainActivity.java
+          sed -i 's/v1\.11\.8-test1 · 内置模块模式/v1.11.8 · 内置模块模式/' app/src/main/java/com/rww/wetypeswipe/EmbeddedSettingsUi.java
+          sed -i 's/v1\.11\.8-test1 entered target package; system input-method actions enabled/v1.11.8 entered target package; system input-method actions enabled/' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('CHANGELOG.md')
+          s = p.read_text(encoding='utf-8')
+          entry = '''## v1.11.8\n\n- 新增“下一个输入法”“上一个输入法”“选择输入法”3 个系统输入法动作，编号追加为 21–23，原有 0–20 保持不变\n- “下一个输入法”使用 Android `InputMethodService.switchToNextInputMethod(false)`，可直接切换到其他已启用输入法\n- “上一个输入法”使用 `switchToPreviousInputMethod()`，便于在最近使用的输入法之间快速往返\n- “选择输入法”调用系统输入法选择面板，不依赖微信输入法内部实现\n- 26 键与九宫格 2–9 均可绑定三个新动作，独立设置与内置 5 击设置同步支持\n- 系统输入法切换动作不读取或修改编辑内容，因此在密码输入框中仍可执行；其余编辑动作继续保持密码框隔离\n- 最低 Android 版本由 8.0 / API 26 提升到 Android 9 / API 28\n- 配置快照、目标应用缓存和跨进程同步新增三项动作字段，旧配置无需迁移\n\n'''
+          if '## v1.11.8\n' not in s:
+              s = s.replace('# 更新记录\n\n', '# 更新记录\n\n' + entry, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('README.md')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('Android-8.0%2B', 'Android-9%2B')
+          s = s.replace('当前稳定版本：**v1.11.7**', '当前稳定版本：**v1.11.8**')
+          s = s.replace('- 撤销、重做\n- 输入指定内容', '- 撤销、重做\n- 下一个输入法、上一个输入法、系统输入法选择面板\n- 输入指定内容')
+          start = s.index('## v1.11.7 更新内容')
+          end = s.index('\n## 兼容性', start)
+          section = '''## v1.11.8 更新内容\n\n- 新增“下一个输入法”“上一个输入法”“选择输入法”，动作 ID 追加为 `21–23`，原 `0–20` 不变。\n- 26 键与九宫格 2–9 都可绑定系统输入法切换动作。\n- 输入法切换使用 Android 系统公开 API，不依赖微信输入法内部混淆类。\n- 输入法切换动作在密码框也可执行，因为不会读取或修改输入内容；其他编辑动作仍保持密码框隔离。\n- 最低系统版本提升为 **Android 9 / API 28**。\n- 保持 v1.11.7 对微信输入法 4.0.0 的键盘与原生剪贴板／快捷发送兼容修复。\n\n完整变更请查看 [v1.11.8 Release](https://github.com/waoui/WeType-Swipe/releases/tag/v1.11.8) 和 [更新记录](CHANGELOG.md)。\n'''
+          s = s[:start] + section + s[end:]
+          s = s.replace('- Android 8.0 及以上', '- Android 9 及以上（API 28+）')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('AGENTS.md')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('当前已使用 0–20。', '当前已使用 0–23。')
+          s = s.replace('- Android：8.0 及以上', '- Android：9 及以上（API 28+）')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('docs/Android开发环境基线.md')
+          s = p.read_text(encoding='utf-8')
+          marker = '- [ ] 快捷发送／常用语入口正常。\n'
+          addition = ('- [ ] 下滑“下一个输入法”可切换到系统中的下一输入法。\n'
+                      '- [ ] 下滑“上一个输入法”可返回最近使用的输入法。\n'
+                      '- [ ] 下滑“选择输入法”可弹出系统输入法选择面板。\n')
+          if addition not in s:
+              s = s.replace(marker, marker + addition)
+          s = s.replace('- [ ] 密码输入框不执行快捷动作或指定内容。',
+                        '- [ ] 密码输入框不执行编辑类快捷动作或指定内容；三个系统输入法切换动作仍可执行。')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('.github/ISSUE_TEMPLATE/bug_report.yml')
+          s = p.read_text(encoding='utf-8').replace('placeholder: 例如 v1.11.7', 'placeholder: 例如 v1.11.8')
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('app/src/main/res/values/strings.xml')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('支持编辑导航、原生面板、自定义文本和内置设置',
+                        '支持编辑导航、原生面板、自定义文本、系统输入法切换和内置设置')
+          p.write_text(s, encoding='utf-8')
+
+          Path('RELEASE_NOTES_v1.11.8.md').write_text('''# WeType-Swipe v1.11.8\n\n## 新增：系统输入法切换\n\n- 新增“下一个输入法”，动作 ID `21`。\n- 新增“上一个输入法”，动作 ID `22`。\n- 新增“选择输入法”，动作 ID `23`，可打开 Android 系统输入法选择面板。\n- 三个动作均可绑定到 26 键或九宫格 2–9。\n- 独立模块设置与微信输入法内置 5 击设置均支持新动作。\n- 系统输入法切换动作不读取、不修改当前输入内容，因此密码输入框中也允许执行。\n\n## 兼容与配置\n\n- 原有动作 ID `0–20` 不变，既有配置无需迁移。\n- 配置快照、目标应用缓存和跨进程同步均支持三个新动作。\n- 最低 Android 版本提升为 Android 9 / API 28。\n- 保留 v1.11.7 对微信输入法 3.5.0、3.5.2、4.0.0 的兼容逻辑。\n\n## 版本\n\n- Version Name: `1.11.8`\n- Version Code: `55`\n''', encoding='utf-8')
+          PY
+
+          rm -f RELEASE_NOTES_v1.11.7.md
+          rm -f tools/patch_input_method_actions_test.py
+          rmdir tools 2>/dev/null || true
+          rm -f .github/workflows/promote-v1.11.8.yml
+
+          grep -q '^VERSION_CODE=55$' gradle.properties
+          grep -q '^VERSION_NAME=1.11.8$' gradle.properties
+          grep -q 'minSdk = 28' app/build.gradle.kts
+          grep -q 'ACTION_NEXT_INPUT_METHOD = 21' app/src/main/java/com/rww/wetypeswipe/Config.java
+          grep -q 'ACTION_PREVIOUS_INPUT_METHOD = 22' app/src/main/java/com/rww/wetypeswipe/Config.java
+          grep -q 'ACTION_SHOW_INPUT_METHOD_PICKER = 23' app/src/main/java/com/rww/wetypeswipe/Config.java
+          grep -q 'switchToNextInputMethod(false)' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'switchToPreviousInputMethod()' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          grep -q 'showInputMethodPicker()' app/src/main/java/com/rww/wetypeswipe/MainHook.java
+          test -f app/src/test/java/com/rww/wetypeswipe/InputMethodActionTest.java
+          test -f RELEASE_NOTES_v1.11.8.md
+          test ! -e RELEASE_NOTES_v1.11.7.md
+          test ! -e tools/patch_input_method_actions_test.py
+          test ! -e .github/workflows/promote-v1.11.8.yml
+
+      - name: 提交正式源码
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "准备 v1.11.8 正式源码"
+          git push origin HEAD:release/v1.11.8
