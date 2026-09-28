@@ -10,6 +10,9 @@ import android.os.Build;
 
 /** Owns cross-process config synchronization and the target-process cache. */
 final class ConfigBridge {
+    private static final String MODULE_PACKAGE = "com.rww.wetypeswipe";
+    private static final String MODULE_SYNC_RECEIVER = MODULE_PACKAGE + ".ConfigSyncReceiver";
+
     interface Listener {
         void onConfigChanged(Config config);
         void info(String message);
@@ -53,6 +56,15 @@ final class ConfigBridge {
             changed.setPackage(targetPackage);
             ConfigSnapshot.putInto(changed, config);
             stable.sendBroadcast(changed);
+
+            // The embedded editor runs in the WeType process, while the standalone editor
+            // persists settings in the module app sandbox. Mirror every embedded save back to
+            // the module package so both entry points keep one effective configuration.
+            Intent moduleSync = new Intent(Config.ACTION_CONFIG_CHANGED);
+            moduleSync.setClassName(MODULE_PACKAGE, MODULE_SYNC_RECEIVER);
+            ConfigSnapshot.putInto(moduleSync, config);
+            stable.sendBroadcast(moduleSync);
+
             listener.info("embedded settings saved revision=" + config.revision);
         } catch (Throwable throwable) {
             listener.error("embedded settings save failed", throwable);
