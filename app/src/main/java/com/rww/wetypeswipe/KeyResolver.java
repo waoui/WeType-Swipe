@@ -24,11 +24,7 @@ final class KeyResolver {
         Object keyData = reflector.invoke(button, "O");
         if (keyData == null) return null;
         Object main = reflector.invoke(keyData, "getMainText");
-        Object secondary = firstNonNull(
-                reflector.invoke(keyData, "getSubText"),
-                reflector.invoke(keyData, "getSecondaryText"),
-                reflector.invoke(keyData, "getHintText"),
-                reflector.invoke(keyData, "getAssistText"));
+        Object secondary = secondaryText(keyData);
         return keyFromTexts(main, secondary);
     }
 
@@ -37,11 +33,7 @@ final class KeyResolver {
         Object keyData = reflector.invoke(button, "O");
         if (keyData != null) {
             Object main = reflector.invoke(keyData, "getMainText");
-            Object secondary = firstNonNull(
-                    reflector.invoke(keyData, "getSubText"),
-                    reflector.invoke(keyData, "getSecondaryText"),
-                    reflector.invoke(keyData, "getHintText"),
-                    reflector.invoke(keyData, "getAssistText"));
+            Object secondary = secondaryText(keyData);
             KeyInfo key = keyFromTexts(main, secondary);
             if (key != null) return key;
             if (isT9Context(keyboard, button, keyData)) {
@@ -54,6 +46,16 @@ final class KeyResolver {
         return keyFromId(reflector.invoke(button, "K"), keyboard, button, keyData);
     }
 
+    private Object secondaryText(Object keyData) {
+        Object value = reflector.invoke(keyData, "getSubText");
+        if (value != null) return value;
+        value = reflector.invoke(keyData, "getSecondaryText");
+        if (value != null) return value;
+        value = reflector.invoke(keyData, "getHintText");
+        if (value != null) return value;
+        return reflector.invoke(keyData, "getAssistText");
+    }
+
     static KeyInfo keyFromTexts(Object mainValue, Object secondaryValue) {
         String main = normalizeText(mainValue);
         String secondary = normalizeText(secondaryValue);
@@ -63,11 +65,6 @@ final class KeyResolver {
             char c = main.charAt(0);
             if (c >= 'a' && c <= 'z') return KeyInfo.alpha(String.valueOf(c));
         }
-        return null;
-    }
-
-    private static Object firstNonNull(Object... values) {
-        for (Object value : values) if (value != null) return value;
         return null;
     }
 
