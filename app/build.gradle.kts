@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.rww.wetypeswipe"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 35
         versionCode = appVersionCode
         versionName = appVersionName

@@ -5,14 +5,14 @@
 支持 26 键与九宫格，可将常用编辑操作、原生剪贴板、快捷发送以及自定义固定文本绑定到指定按键。正常点击仍保持原有输入，下滑时执行快捷功能。
 
 [![Latest Release](https://img.shields.io/github/v/release/waoui/WeType-Swipe?label=最新版)](https://github.com/waoui/WeType-Swipe/releases/latest)
-[![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)](#兼容性)
+[![Android](https://img.shields.io/badge/Android-9%2B-3DDC84)](#兼容性)
 [![License](https://img.shields.io/github/license/waoui/WeType-Swipe)](LICENSE)
 
 ## 下载
 
 请从本仓库的 [Releases 页面](https://github.com/waoui/WeType-Swipe/releases/latest) 下载正式版 APK。
 
-当前稳定版本：**v1.11.7**
+当前稳定版本：**v1.11.8**
 
 > 建议同时下载发布页中的 SHA256 校验文件，确认 APK 完整且未被修改。
 
@@ -29,6 +29,7 @@
 - 打开微信输入法原生剪贴板
 - 打开微信输入法原生快捷发送／常用语
 - 撤销、重做
+- 下一个输入法、上一个输入法、系统输入法选择面板
 - 输入指定内容：每个按键可保存独立文本，支持中文、英文、数字、符号、Emoji 和换行
 - 禁用指定按键的下滑动作
 
@@ -87,19 +88,20 @@
 
 其他操作默认不绑定，可在模块设置中自由分配。一个按键同一时刻只执行一个下滑动作；“输入指定内容”属于可重复动作，可以配置到多个按键，并为每个按键保存不同内容。
 
-## v1.11.7 更新内容
+## v1.11.8 更新内容
 
-- 兼容微信输入法 4.0.0，自绘键盘公共基类从旧版 `selfdraw.n` 迁移到 `selfdraw.o` 后，下滑手势仍可正常识别。
-- 键盘基类识别增加结构特征回退，降低后续混淆类名变化导致整模块失效的概率。
-- 兼容微信输入法 4.0.0 原生工具栏命令载体字段变化，恢复“剪贴板”和“快捷发送／常用语”下滑入口。
-- 原生工具栏载体同时兼容旧 `f/g/h`、4.0.0 `g/h/i` 布局，并保留结构特征回退。
-- 保持动作 ID `0–20`、现有配置、默认键位和 v1.11.6“输入指定内容”等功能不变。
+- 新增“下一个输入法”“上一个输入法”“选择输入法”，动作 ID 追加为 `21–23`，原 `0–20` 不变。
+- 26 键与九宫格 2–9 都可绑定系统输入法切换动作。
+- 输入法切换使用 Android 系统公开 API，不依赖微信输入法内部混淆类。
+- 输入法切换动作在密码框也可执行，因为不会读取或修改输入内容；其他编辑动作仍保持密码框隔离。
+- 最低系统版本提升为 **Android 9 / API 28**。
+- 保持 v1.11.7 对微信输入法 4.0.0 的键盘与原生剪贴板／快捷发送兼容修复。
 
-完整变更请查看 [v1.11.7 Release](https://github.com/waoui/WeType-Swipe/releases/tag/v1.11.7) 和 [更新记录](CHANGELOG.md)。
+完整变更请查看 [v1.11.8 Release](https://github.com/waoui/WeType-Swipe/releases/tag/v1.11.8) 和 [更新记录](CHANGELOG.md)。
 
 ## 兼容性
 
-- Android 8.0 及以上
+- Android 9 及以上（API 28+）
 - LSPosed 环境
 - 安卓版微信输入法
 - 当前实测：微信输入法 3.5.0、3.5.2、4.0.0，Android 16

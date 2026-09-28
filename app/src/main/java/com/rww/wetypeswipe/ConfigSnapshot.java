@@ -29,6 +29,9 @@ final class ConfigSnapshot {
         target.openQuickPhrase = source.openQuickPhrase;
         target.undo = source.undo;
         target.redo = source.redo;
+        target.nextInputMethod = source.nextInputMethod;
+        target.previousInputMethod = source.previousInputMethod;
+        target.showInputMethodPicker = source.showInputMethodPicker;
         target.disabledKeys = source.disabledKeys;
         target.thresholdDp = source.thresholdDp;
         target.t9ThresholdDp = source.t9ThresholdDp;
@@ -65,6 +68,9 @@ final class ConfigSnapshot {
         intent.putExtra(Config.KEY_OPEN_QUICK_PHRASE, config.openQuickPhrase);
         intent.putExtra(Config.KEY_UNDO, config.undo);
         intent.putExtra(Config.KEY_REDO, config.redo);
+        intent.putExtra(Config.KEY_NEXT_INPUT_METHOD, config.nextInputMethod);
+        intent.putExtra(Config.KEY_PREVIOUS_INPUT_METHOD, config.previousInputMethod);
+        intent.putExtra(Config.KEY_SHOW_INPUT_METHOD_PICKER, config.showInputMethodPicker);
         intent.putExtra(Config.KEY_DISABLED_KEYS, config.disabledKeys);
         intent.putExtra(Config.KEY_THRESHOLD, config.thresholdDp);
         intent.putExtra(Config.KEY_T9_THRESHOLD, config.t9ThresholdDp);
