@@ -159,7 +159,7 @@ public final class MainActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title);
 
-        TextView version = text("v1.11.9-test1 · 架构重构测试", 13, COLOR_SECONDARY);
+        TextView version = text("v1.11.9-test2 · 架构重构测试", 13, COLOR_SECONDARY);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(4);
         header.addView(version, versionParams);

@@ -76,6 +76,7 @@ public final class MainHook extends XposedModule {
     private volatile WeakReference<View> nativeSingleKeyActiveKeyboardRef = new WeakReference<>(null);
     private final ConcurrentHashMap<Object, String> nativeSingleKeyLabelCache = new ConcurrentHashMap<>();
     private volatile long nativeSingleKeyPaintSignature = Long.MIN_VALUE;
+    private volatile int lastResolvedNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
     private volatile Class<?> nativeSingleKeyModelClass;
     private volatile Field nativeSingleKeyDrawRectField;
     private volatile Field nativeSingleKeyParentField;
@@ -119,7 +120,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.9-test1 entered target package; phase-1 architecture refactor enabled");
+            logInfo("v1.11.9-test2 entered target package; phase-1 refactor + live dark-mode refresh enabled");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -547,16 +548,12 @@ public final class MainHook extends XposedModule {
 
     private void ensureNativeSingleKeyPaint(View keyboard, Rect drawRect) {
         if (keyboard == null || drawRect == null) return;
-        int night = keyboard.getResources().getConfiguration().uiMode
-                & Configuration.UI_MODE_NIGHT_MASK;
+        int night = resolveLiveNightMode(keyboard);
         int density = Float.floatToIntBits(
                 keyboard.getResources().getDisplayMetrics().scaledDensity);
         int keyHeight = Math.max(1, drawRect.height());
-        long signature = (((long) keyboard.getWidth()) << 40)
-                ^ (((long) keyboard.getHeight()) << 16)
-                ^ (((long) keyHeight) << 4)
-                ^ (((long) night) << 2)
-                ^ (density & 0xffffffffL);
+        long signature = KeyboardThemeState.paintSignature(
+                keyboard.getWidth(), keyboard.getHeight(), keyHeight, density, night);
         if (signature == nativeSingleKeyPaintSignature) return;
         prepareKeyboardLabelPaint(keyboard);
         float scaledDensity = keyboard.getResources().getDisplayMetrics().scaledDensity;
@@ -608,13 +605,59 @@ public final class MainHook extends XposedModule {
         }
     }
 
+    private int resolveLiveNightMode(View keyboard) {
+        if (keyboard == null) return Configuration.UI_MODE_NIGHT_UNDEFINED;
+
+        int keyboardUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+        int applicationUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+        int imeUiMode = Configuration.UI_MODE_NIGHT_UNDEFINED;
+
+        try {
+            keyboardUiMode = keyboard.getResources().getConfiguration().uiMode;
+        } catch (Throwable ignored) {}
+
+        try {
+            Context application = keyboard.getContext().getApplicationContext();
+            if (application != null) {
+                applicationUiMode = application.getResources().getConfiguration().uiMode;
+            }
+        } catch (Throwable ignored) {}
+
+        InputMethodService ime = imeRef.get();
+        if (ime != null) {
+            try {
+                Context application = ime.getApplicationContext();
+                if (application != null) {
+                    applicationUiMode = application.getResources().getConfiguration().uiMode;
+                }
+            } catch (Throwable ignored) {}
+            try {
+                imeUiMode = ime.getResources().getConfiguration().uiMode;
+            } catch (Throwable ignored) {}
+        }
+
+        int resolved = KeyboardThemeState.resolveNightMode(
+                keyboardUiMode, applicationUiMode, imeUiMode);
+        int previous = lastResolvedNightMode;
+        if (resolved != previous) {
+            lastResolvedNightMode = resolved;
+            nativeSingleKeyPaintSignature = Long.MIN_VALUE;
+            View activeKeyboard = nativeSingleKeyActiveKeyboardRef.get();
+            if (activeKeyboard != null && activeKeyboard != keyboard) activeKeyboard.postInvalidate();
+            keyboard.postInvalidate();
+            if (previous != Configuration.UI_MODE_NIGHT_UNDEFINED) {
+                logInfo("keyboard label theme refreshed: " + previous + " -> " + resolved);
+            }
+        }
+        return resolved;
+    }
+
     private void prepareKeyboardLabelPaint(View keyboard) {
         float scaledDensity = keyboard.getResources().getDisplayMetrics().scaledDensity;
         float estimatedKeyHeight = keyboard.getHeight() / 4f;
         float keyHeightBased = estimatedKeyHeight * 0.145f;
         float textSize = Math.max(5.8f * scaledDensity, Math.min(8.0f * scaledDensity, keyHeightBased));
-        boolean night = (keyboard.getResources().getConfiguration().uiMode
-                & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        boolean night = KeyboardThemeState.isNight(resolveLiveNightMode(keyboard));
         keyboardLabelPaint.reset();
         keyboardLabelPaint.setAntiAlias(true);
         keyboardLabelPaint.setTextAlign(Paint.Align.CENTER);
