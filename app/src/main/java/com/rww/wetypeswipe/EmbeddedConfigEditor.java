@@ -60,14 +60,7 @@ final class EmbeddedConfigEditor {
 
     static void restoreDefaults(Config config) {
         if (config == null) return;
-        for (int action : QWERTY_ACTIONS) setKeyForAction(config, action, "");
-        config.selectAll = "z";
-        config.cut = "x";
-        config.copy = "c";
-        config.paste = "v";
-        config.disabledKeys = "";
-        Arrays.fill(config.qwertyTexts, "");
-        config.rebuildActionMap();
+        RecommendedDefaults.applyDownQwerty(config);
     }
 
     static void clearQwerty(Config config) {
