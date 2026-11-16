@@ -69,6 +69,16 @@ public final class MainActivity extends Activity {
     };
 
     private SharedPreferences prefs;
+    private String loadedConfigFingerprint = "";
+    private boolean settingsForeground;
+    private boolean syncConflictDialogOpen;
+    private final SharedPreferences.OnSharedPreferenceChangeListener embeddedSyncListener =
+            (shared, key) -> {
+                if (ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING.equals(key)
+                        && shared.getBoolean(ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING, false)) {
+                    runOnUiThread(() -> refreshAfterEmbeddedSave());
+                }
+            };
 
     private final String[] qwertyKeys = new String[QWERTY_ACTIONS.length];
     private final TextView[] qwertyActionViews = new TextView[26];
@@ -107,11 +117,71 @@ public final class MainActivity extends Activity {
         loadUiState();
         configureWindow();
         setContentView(buildPage());
+        prefs.registerOnSharedPreferenceChangeListener(embeddedSyncListener);
     }
 
     @Override protected void onResume() {
         super.onResume();
+        settingsForeground = true;
         if (hideIcon != null) hideIcon.setChecked(isLauncherIconHidden());
+        refreshAfterEmbeddedSave();
+        try {
+            // Recovers from a missed/delayed embedded -> standalone broadcast.
+            ConfigBridge.requestLatestFromTarget(this);
+        } catch (RuntimeException ex) {
+            Log.w("WeTypeSwipeSync", "Unable to request live IME configuration", ex);
+        }
+    }
+
+    @Override protected void onPause() {
+        settingsForeground = false;
+        super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        prefs.unregisterOnSharedPreferenceChangeListener(embeddedSyncListener);
+        super.onDestroy();
+    }
+
+    private void refreshAfterEmbeddedSave() {
+        if (!settingsForeground || syncConflictDialogOpen || isFinishing() || isDestroyed()) return;
+        if (!prefs.getBoolean(ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING, false)) return;
+        Config current = ConfigCodec.fromPreferences(prefs);
+        String newFingerprint = ConfigFingerprint.of(current);
+        if (newFingerprint.equals(loadedConfigFingerprint)) {
+            prefs.edit().remove(ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING).apply();
+            return;
+        }
+
+        // Never discard changes currently being edited in the standalone screen.
+        if (isStandaloneEditorDirty()) {
+            syncConflictDialogOpen = true;
+            new AlertDialog.Builder(this)
+                    .setTitle("内置模块配置已更新")
+                    .setMessage("微信输入法内置设置有新的配置，但当前页面还有未保存的修改。刷新将放弃这些未保存修改。")
+                    .setNegativeButton("暂不刷新", (d, w) -> syncConflictDialogOpen = false)
+                    .setPositiveButton("刷新为内置配置", (d, w) -> {
+                        syncConflictDialogOpen = false;
+                        applyReceivedConfig();
+                    })
+                    .setOnCancelListener(d -> syncConflictDialogOpen = false)
+                    .show();
+            return;
+        }
+        applyReceivedConfig();
+    }
+
+    private boolean isStandaloneEditorDirty() {
+        if (threshold == null || t9Threshold == null || vibration == null
+                || showKeyLabels == null || showTriggerHint == null) return false;
+        return !ConfigFingerprint.of(configFromUi(0)).equals(loadedConfigFingerprint);
+    }
+
+    private void applyReceivedConfig() {
+        loadUiState();
+        setContentView(buildPage());
+        prefs.edit().remove(ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING).apply();
+        Toast.makeText(this, "已从微信输入法同步最新配置", Toast.LENGTH_SHORT).show();
     }
 
     private void configureWindow() {
@@ -994,6 +1064,7 @@ public final class MainActivity extends Activity {
         System.arraycopy(config.upT9Actions, 0, upT9Actions, 0, upT9Actions.length);
         System.arraycopy(config.upT9Texts, 0, upT9InsertTexts, 0, upT9InsertTexts.length);
         System.arraycopy(config.upT9Labels, 0, upT9CustomLabels, 0, upT9CustomLabels.length);
+        loadedConfigFingerprint = ConfigFingerprint.of(config);
     }
 
     private Config configFromUi(int revision) {
@@ -1051,6 +1122,7 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "配置保存失败", Toast.LENGTH_SHORT).show();
             return;
         }
+        loadedConfigFingerprint = ConfigFingerprint.of(config);
 
         Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
         changed.setPackage("com.tencent.wetype");
