@@ -11,12 +11,15 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.WindowInsets;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -81,6 +84,28 @@ public final class MainActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.setBackgroundColor(pageColor);
+        // On edge-to-edge ROMs avoid obscuring the header and last action, but do
+        // not double-apply padding when Android already fits the decor to system bars.
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            final int status, navigation;
+            if (Build.VERSION.SDK_INT >= 30) {
+                Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                status = bars.top;
+                navigation = bars.bottom;
+            } else {
+                status = insets.getSystemWindowInsetTop();
+                navigation = insets.getSystemWindowInsetBottom();
+            }
+            int[] location = new int[2];
+            view.getLocationOnScreen(location);
+            int topPadding = Math.max(0, status - location[1]);
+            int rootHeight = view.getRootView().getHeight();
+            int bottomPadding = rootHeight <= 0 ? 0
+                    : Math.max(0, location[1] + view.getHeight()
+                            - (rootHeight - navigation));
+            view.setPadding(0, topPadding, 0, bottomPadding);
+            return insets;
+        });
 
         LinearLayout content = vertical();
         content.setPadding(dp(18), dp(22), dp(18), dp(28));
