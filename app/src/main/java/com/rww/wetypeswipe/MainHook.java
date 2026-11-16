@@ -749,11 +749,11 @@ public final class MainHook extends XposedModule {
         float thirdBaseline = rowHeight * 3f
                 - Math.max(minBottomGap, rowHeight * 0.20f);
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
-        float upOffset = rowHeight - Math.max(dp(keyboard, 1), rowHeight * 0.075f)
-                + metrics.ascent - metrics.descent;
-        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline, firstBaseline - upOffset);
-        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline, secondBaseline - upOffset);
-        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline, thirdBaseline - upOffset);
+        float firstUpBaseline = Math.max(dp(keyboard, 1), rowHeight * 0.045f)
+                - metrics.ascent;
+        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline, firstUpBaseline);
+        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline, rowHeight + firstUpBaseline);
+        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline, rowHeight * 2f + firstUpBaseline);
     }
 
     private void drawQwertyRow(Canvas canvas, Config config, String keys,
