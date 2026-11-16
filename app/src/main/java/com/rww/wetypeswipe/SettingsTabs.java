@@ -14,10 +14,10 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Shared, accessible navigation for standalone and embedded settings. */
+/** Accessible navigation for the single embedded settings editor. */
 final class SettingsTabs {
     private static final String MODULE_PACKAGE = "com.rww.wetypeswipe";
-    private static final String[] TITLES = {"26 键", "九宫格", "手势与选项"};
+    private static final String[] TITLES = {"26 键", "九宫格", "选项与备份"};
     private static final int TEXT_MUTED = Color.rgb(91, 103, 122);
     private static final int ACCENT = Color.rgb(36, 103, 214);
     private static final int TRACK = Color.rgb(237, 241, 247);
