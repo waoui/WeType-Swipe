@@ -1,6 +1,13 @@
 package com.rww.wetypeswipe;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.inputmethodservice.InputMethodService;
+import android.os.IBinder;
+import android.view.WindowManager;
+import java.lang.ref.WeakReference;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.graphics.Color;
@@ -43,7 +50,7 @@ final class EmbeddedSettingsUi {
     interface ConfigProvider { Config get(); }
     interface ConfigSaver { void save(Config config); }
 
-    private final Activity activity;
+    private final Context activity;
     private final Config config;
     private final ConfigSaver saver;
     private final TextView[] qwertyActionViews = new TextView[26];
@@ -60,21 +67,53 @@ final class EmbeddedSettingsUi {
     private CheckBox showHint;
     private CheckBox vibration;
     private Dialog dialog;
+    private static WeakReference<Dialog> activeDialog = new WeakReference<>(null);
 
-    private EmbeddedSettingsUi(Activity activity, Config config, ConfigSaver saver) {
+    private EmbeddedSettingsUi(Context activity, Config config, ConfigSaver saver) {
         this.activity = activity;
         this.config = ConfigSnapshot.copyOf(config);
         this.saver = saver;
     }
 
-    static void show(Activity activity, ConfigProvider provider, ConfigSaver saver) {
+    static void show(Context activity, ConfigProvider provider, ConfigSaver saver) {
+        if (activeAndShowing()) return;
         Config source = provider == null ? null : provider.get();
-        new EmbeddedSettingsUi(activity, source, saver).showDialog();
+        new EmbeddedSettingsUi(activity, source, saver).showDialog(null);
     }
 
-    private void showDialog() {
+    /**
+     * Display the same embedded settings UI directly over the IME, without requiring
+     * a separate WeType Activity. The IME window token is mandatory for this window type.
+     */
+    static void showFromKeyboard(InputMethodService ime, ConfigProvider provider, ConfigSaver saver) {
+        if (activeAndShowing()) return;
+        if (ime == null || ime.getWindow() == null || ime.getWindow().getWindow() == null) {
+            throw new IllegalStateException("输入法窗口尚未就绪");
+        }
+        Window imeWindow = ime.getWindow().getWindow();
+        IBinder token = imeWindow.getDecorView().getWindowToken();
+        if (token == null) token = imeWindow.getAttributes().token;
+        if (token == null) throw new IllegalStateException("缺少输入法窗口 Token");
+        Config source = provider == null ? null : provider.get();
+        new EmbeddedSettingsUi(ime, source, saver).showDialog(token);
+    }
+
+    private static boolean activeAndShowing() {
+        Dialog active = activeDialog.get();
+        return active != null && active.isShowing();
+    }
+
+    private void showDialog(IBinder imeToken) {
         dialog = new Dialog(activity, android.R.style.Theme_Material_Light_NoActionBar);
         dialog.setContentView(buildPage());
+        Window initialWindow = dialog.getWindow();
+        if (imeToken != null && initialWindow != null) {
+            initialWindow.setType(WindowManager.LayoutParams.TYPE_INPUT_METHOD_DIALOG);
+            WindowManager.LayoutParams attributes = initialWindow.getAttributes();
+            attributes.token = imeToken;
+            initialWindow.setAttributes(attributes);
+        }
+        dialog.setOnDismissListener(ignored -> activeDialog = new WeakReference<>(null));
         dialog.setOnShowListener(ignored -> {
             Window window = dialog.getWindow();
             if (window != null) {
@@ -87,6 +126,7 @@ final class EmbeddedSettingsUi {
             }
         });
         dialog.show();
+        activeDialog = new WeakReference<>(dialog);
         Window window = dialog.getWindow();
         if (window != null) window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
     }
@@ -777,7 +817,7 @@ final class EmbeddedSettingsUi {
         row.addView(new View(activity), new LinearLayout.LayoutParams(0, dp(activity, 1), weight));
     }
 
-    private static LinearLayout vertical(Activity activity) {
+    private static LinearLayout vertical(Context activity) {
         LinearLayout layout = new LinearLayout(activity);
         layout.setOrientation(LinearLayout.VERTICAL);
         return layout;
@@ -791,7 +831,7 @@ final class EmbeddedSettingsUi {
         return layout;
     }
 
-    private static TextView text(Activity activity, String value, int sp, int color) {
+    private static TextView text(Context activity, String value, int sp, int color) {
         TextView view = new TextView(activity);
         view.setText(value);
         view.setTextSize(sp);
@@ -811,7 +851,7 @@ final class EmbeddedSettingsUi {
         return drawable;
     }
 
-    private static int dp(Activity activity, int value) {
+    private static int dp(Context activity, int value) {
         return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 }
