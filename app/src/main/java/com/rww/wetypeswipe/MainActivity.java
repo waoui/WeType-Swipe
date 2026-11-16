@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.net.Uri;
+import android.util.Log;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -28,12 +30,18 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
     private static final String LAUNCHER_ALIAS = "com.rww.wetypeswipe.LauncherAlias";
+    private static final int REQUEST_EXPORT_CONFIG = 4201;
+    private static final int REQUEST_IMPORT_CONFIG = 4202;
 
     private static final int COLOR_PAGE = Color.rgb(245, 247, 250);
     private static final int COLOR_CARD = Color.WHITE;
@@ -134,6 +142,7 @@ public final class MainActivity extends Activity {
         LinearLayout optionsPage = vertical();
         optionsPage.addView(buildGestureCard());
         optionsPage.addView(buildGeneralCard());
+        optionsPage.addView(buildConfigBackupCard());
         content.addView(qwertyPage);
         content.addView(t9Page);
         content.addView(optionsPage, new LinearLayout.LayoutParams(
@@ -234,7 +243,7 @@ public final class MainActivity extends Activity {
         LinearLayout tools = horizontal();
         tools.setPadding(dp(12), dp(10), dp(12), dp(12));
 
-        TextView defaults = smallAction("恢复默认下滑 Z/X/C/V", false);
+        TextView defaults = smallAction("应用截图推荐下滑预设", false);
         defaults.setOnClickListener(v -> restoreQwertyDefaults());
         tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
@@ -512,6 +521,105 @@ public final class MainActivity extends Activity {
         note.setPadding(dp(18), 0, dp(18), dp(14));
         card.addView(note);
         return card;
+    }
+
+    private View buildConfigBackupCard() {
+        LinearLayout card = createCard("配置备份与恢复",
+                "导出当前已保存的完整配置为 UTF-8 文本；导入前验证并确认，保留桌面图标设置。", true);
+        LinearLayout buttons = horizontal();
+        buttons.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        TextView export = smallAction("导出配置 TXT", false);
+        buttons.addView(export, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        export.setOnClickListener(v -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("text/plain");
+                intent.putExtra(Intent.EXTRA_TITLE, "WeType-Swipe-配置备份-v1.12.0-test3.txt");
+                startActivityForResult(intent, REQUEST_EXPORT_CONFIG);
+            } catch (Throwable e) {
+                Log.e("WeTypeSwipe", "export picker failed", e);
+                Toast.makeText(this, "无法打开文件保存窗口：" + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+
+        TextView importButton = smallAction("导入配置 TXT", false);
+        LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        importParams.leftMargin = dp(8);
+        buttons.addView(importButton, importParams);
+        importButton.setOnClickListener(v -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(intent, REQUEST_IMPORT_CONFIG);
+            } catch (Throwable e) {
+                Log.e("WeTypeSwipe", "import picker failed", e);
+                Toast.makeText(this, "无法打开文件选择窗口：" + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+        card.addView(buttons);
+        return card;
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        if (requestCode == REQUEST_EXPORT_CONFIG) {
+            try (OutputStream stream = getContentResolver().openOutputStream(uri, "wt")) {
+                if (stream == null) throw new java.io.IOException("文件不可写");
+                String output = ConfigBackup.exportText(ConfigCodec.fromPreferences(prefs));
+                stream.write(output.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+                Toast.makeText(this, "已导出当前已保存配置", Toast.LENGTH_LONG).show();
+            } catch (Exception e) {
+                Log.e("WeTypeSwipe", "backup export failed", e);
+                Toast.makeText(this, "导出失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        } else if (requestCode == REQUEST_IMPORT_CONFIG) {
+            try (InputStream stream = getContentResolver().openInputStream(uri)) {
+                if (stream == null) throw new java.io.IOException("文件不可读");
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                int n;
+                while ((n = stream.read(buffer)) != -1) {
+                    if (output.size() + n > 524288) throw new java.io.IOException("备份文件过大");
+                    output.write(buffer, 0, n);
+                }
+                Config imported = ConfigBackup.importText(
+                        new String(output.toByteArray(), StandardCharsets.UTF_8));
+                new AlertDialog.Builder(this)
+                        .setTitle("确认导入配置？")
+                        .setMessage("已通过格式与字段校验。导入将覆盖所有上下滑绑定、标签、文本和手势设置；桌面图标状态不变。建议先导出旧配置备份。")
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("确认导入", (dialog, which) -> applyImportedConfig(imported))
+                        .show();
+            } catch (Exception e) {
+                Log.e("WeTypeSwipe", "backup import failed", e);
+                Toast.makeText(this, "导入失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private void applyImportedConfig(Config imported) {
+        imported.revision = prefs.getInt(Config.KEY_REVISION, 0) + 1;
+        imported.rebuildActionMap();
+        SharedPreferences.Editor editor = prefs.edit();
+        ConfigCodec.writeToPreferences(editor, imported);
+        if (!editor.commit()) {
+            Toast.makeText(this, "导入失败：无法保存配置", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
+        changed.setPackage("com.tencent.wetype");
+        ConfigSnapshot.putInto(changed, imported);
+        sendBroadcast(changed);
+        loadUiState();
+        setContentView(buildPage());
+        Toast.makeText(this, "导入成功，配置已同步到微信输入法", Toast.LENGTH_LONG).show();
     }
 
     private View buildSaveBar() {
@@ -829,15 +937,14 @@ public final class MainActivity extends Activity {
     }
 
     private void restoreQwertyDefaults() {
-        Arrays.fill(qwertyKeys, "");
+        Config preset = RecommendedDefaults.create();
+        for (int i = 0; i < QWERTY_ACTIONS.length; i++) {
+            qwertyKeys[i] = normalizedKey(ActionRegistry.keyFor(preset, QWERTY_ACTIONS[i]));
+        }
         Arrays.fill(qwertyInsertTexts, "");
-        qwertyKeys[0] = "z";
-        qwertyKeys[1] = "x";
-        qwertyKeys[2] = "c";
-        qwertyKeys[3] = "v";
-        disabledKeys = "";
+        disabledKeys = preset.disabledKeys;
         updateAllQwertyViews();
-        Toast.makeText(this, "已恢复默认映射，点击底部按钮保存", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "已应用截图推荐下滑预设（含 L 键设置），请点击保存", Toast.LENGTH_LONG).show();
     }
 
     private void confirmClearQwerty() {
