@@ -532,25 +532,41 @@ public final class MainHook extends XposedModule {
         }
         String identity = (visibleKey.t9 ? "t9:" : "qwerty:") + visibleKey.key + '\u0000' + config.revision + '\u0000';
         String cached = nativeSingleKeyLabelCache.get(model);
-        String label;
+        String labelPair;
         if (cached == null || !cached.startsWith(identity)) {
-            label = config.displayBindingLabel(visibleKey.key, visibleKey.t9);
+            int downAction = config.actionFor(visibleKey.key, visibleKey.t9);
+            int upAction = config.actionForUp(visibleKey.key, visibleKey.t9);
+            String downLabel = downAction == Config.ACTION_NONE || downAction == Config.ACTION_DISABLE
+                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, downAction);
+            String upLabel = upAction == Config.ACTION_NONE || upAction == Config.ACTION_DISABLE
+                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, upAction, true);
+            labelPair = downLabel + '\u0001' + upLabel;
             if (nativeSingleKeyLabelCache.size() >= NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT) {
                 nativeSingleKeyLabelCache.clear();
             }
-            nativeSingleKeyLabelCache.put(model, identity + label);
+            nativeSingleKeyLabelCache.put(model, identity + labelPair);
         } else {
-            label = cached.substring(identity.length());
+            labelPair = cached.substring(identity.length());
         }
-        if (label.isEmpty()) return;
+        int separator = labelPair.indexOf('\u0001');
+        if (separator < 0) return;
+        String downLabel = labelPair.substring(0, separator);
+        String upLabel = labelPair.substring(separator + 1);
+        if (downLabel.isEmpty() && upLabel.isEmpty()) return;
 
         ensureNativeSingleKeyPaint(keyboard, drawRect);
         float keyHeight = Math.max(1f, drawRect.height());
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
-        float visibleBottomPadding = Math.max(dp(keyboard, 1), keyHeight * 0.045f);
-        float baseline = drawRect.bottom - visibleBottomPadding - metrics.descent;
-        drawKeyFunctionText((Canvas) canvasValue, label,
-                drawRect.exactCenterX(), baseline);
+        float padding = Math.max(dp(keyboard, 1), keyHeight * 0.045f);
+        float downBaseline = drawRect.bottom - padding - metrics.descent;
+        float upBaseline = drawRect.top + padding - metrics.ascent;
+        Canvas canvas = (Canvas) canvasValue;
+        if (!upLabel.isEmpty()) {
+            drawKeyFunctionText(canvas, upLabel, drawRect.exactCenterX(), upBaseline);
+        }
+        if (!downLabel.isEmpty()) {
+            drawKeyFunctionText(canvas, downLabel, drawRect.exactCenterX(), downBaseline);
+        }
     }
 
     private View nativeSingleKeyParent(Object model) {
@@ -732,23 +748,27 @@ public final class MainHook extends XposedModule {
                 - Math.max(minBottomGap, rowHeight * 0.19f);
         float thirdBaseline = rowHeight * 3f
                 - Math.max(minBottomGap, rowHeight * 0.20f);
-        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline);
-        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline);
-        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline);
+        Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
+        float upOffset = rowHeight - Math.max(dp(keyboard, 1), rowHeight * 0.075f)
+                + metrics.ascent - metrics.descent;
+        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline, firstBaseline - upOffset);
+        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline, secondBaseline - upOffset);
+        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline, thirdBaseline - upOffset);
     }
 
-    private void drawQwertyRow(Canvas canvas, Config config, String keys, float baseline) {
+    private void drawQwertyRow(Canvas canvas, Config config, String keys,
+                               float downBaseline, float upBaseline) {
         Map<String, List<Float>> centers = keyboardLabelCenters;
         if (centers == null || centers.isEmpty()) return;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
-            String label = config.displayBindingLabel(key, false);
-            if (label.isEmpty()) continue;
+            if (config.actionFor(key, false) == Config.ACTION_NONE
+                    && config.actionForUp(key, false) == Config.ACTION_NONE) continue;
             List<Float> positions = centers.get(key);
             if (positions == null) continue;
             for (Float x : positions) {
-                if (x != null) drawKeyFunctionText(canvas,
-                        label, x, baseline);
+                if (x != null) drawDirectionalKeyLabels(canvas, config, key,
+                        false, x, downBaseline, upBaseline);
             }
         }
     }
@@ -917,15 +937,16 @@ public final class MainHook extends XposedModule {
         float rowBottom = bottoms.get(bottoms.size() / 2);
         float rowHeight = heights.get(heights.size() / 2);
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
-        float visibleBottomPadding = Math.max(dp(keyboard, 1), rowHeight * 0.045f);
-        float baseline = rowBottom - visibleBottomPadding - metrics.descent;
+        float padding = Math.max(dp(keyboard, 1), rowHeight * 0.045f);
+        float downBaseline = rowBottom - padding - metrics.descent;
+        float upBaseline = rowBottom - rowHeight + padding - metrics.ascent;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
             float[] rect = raw.get(key);
             if (rect == null || rect.length < 4) continue;
             float centerX = (rect[0] + rect[2]) * 0.5f;
             float width = rect[2] - rect[0];
-            output.put(key, new float[]{centerX, baseline, width});
+            output.put(key, new float[]{centerX, downBaseline, width, upBaseline});
         }
     }
 
@@ -935,11 +956,23 @@ public final class MainHook extends XposedModule {
         if (geometry == null || geometry.isEmpty()) return;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
-            String label = config.displayBindingLabel(key, t9);
-            if (label.isEmpty()) continue;
             float[] item = geometry.get(key);
-            if (item == null || item.length < 2) continue;
-            drawKeyFunctionText(canvas, label, item[0], item[1]);
+            if (item == null || item.length < 4) continue;
+            drawDirectionalKeyLabels(canvas, config, key, t9, item[0], item[1], item[3]);
+        }
+    }
+
+    private void drawDirectionalKeyLabels(Canvas canvas, Config config, String key, boolean t9,
+                                          float centerX, float downBaseline, float upBaseline) {
+        int upAction = config.actionForUp(key, t9);
+        if (upAction != Config.ACTION_NONE && upAction != Config.ACTION_DISABLE) {
+            drawKeyFunctionText(canvas, config.labelFor(key, t9, upAction, true),
+                    centerX, upBaseline);
+        }
+        int downAction = config.actionFor(key, t9);
+        if (downAction != Config.ACTION_NONE && downAction != Config.ACTION_DISABLE) {
+            drawKeyFunctionText(canvas, config.labelFor(key, t9, downAction),
+                    centerX, downBaseline);
         }
     }
 
