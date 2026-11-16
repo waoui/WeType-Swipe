@@ -1620,6 +1620,14 @@ public final class MainHook extends XposedModule {
             }
             imeRef = new WeakReference<>(ime);
 
+            if (action == Config.ACTION_OPEN_EMBEDDED_SETTINGS) {
+                EditorInfo field = ime.getCurrentInputEditorInfo();
+                if (field != null && isPassword(field.inputType)) return;
+                hideKeyboardHint(0L);
+                openEmbeddedSettingsFromKeyboard(ime, keyboard);
+                return;
+            }
+
             if (ActionRegistry.isInputMethodAction(action)) {
                 hideKeyboardHint(0L);
                 if (!performInputMethodAction(ime, action)) {
@@ -1665,6 +1673,33 @@ public final class MainHook extends XposedModule {
         }
     }
 
+
+    private void openEmbeddedSettingsFromKeyboard(InputMethodService ime, View keyboard) {
+        try {
+            Activity host = keyboard == null ? null : findActivity(keyboard.getContext());
+            if (host != null && !host.isFinishing()) {
+                EmbeddedSettingsUi.show(host,
+                        () -> ConfigSnapshot.copyOf(configBridge.current()),
+                        config -> applyEmbeddedConfig(host, config));
+            } else {
+                EmbeddedSettingsUi.showFromKeyboard(ime,
+                        () -> ConfigSnapshot.copyOf(configBridge.current()),
+                        config -> applyEmbeddedConfig(ime, config));
+            }
+            logInfo("embedded settings opened by keyboard swipe");
+        } catch (Throwable throwable) {
+            logError("embedded keyboard settings dialog failed; opening standalone fallback", throwable);
+            try {
+                android.content.Intent fallback = new android.content.Intent();
+                fallback.setClassName("com.rww.wetypeswipe",
+                        "com.rww.wetypeswipe.MainActivity");
+                fallback.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                ime.startActivity(fallback);
+            } catch (Throwable fallbackError) {
+                logError("standalone settings fallback failed", fallbackError);
+            }
+        }
+    }
 
     private boolean performInputMethodAction(InputMethodService ime, int action) {
         if (ime == null) return false;
