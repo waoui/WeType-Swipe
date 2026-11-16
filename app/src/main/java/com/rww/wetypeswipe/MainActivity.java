@@ -74,7 +74,7 @@ public final class MainActivity extends Activity {
 
         String revision = legacyPrefs.contains(Config.KEY_REVISION)
                 ? String.valueOf(legacyPrefs.getInt(Config.KEY_REVISION, 0)) : "无";
-        String note = "模块版本：" + BuildConfig.VERSION_NAME
+        String note = "模块版本：" + getModuleVersion()
                 + "\n旧模块本地配置修订号：" + revision
                 + "\n注意：旧修订号不代表当前微信输入法的生效配置。"
                 + "\n如果内置设置入口失效，可在微信输入法“关于”页连续点击图标 5 次。"
@@ -144,8 +144,18 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private String getModuleVersion() {
+        try {
+            String name = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return name == null ? "unknown" : name;
+        } catch (PackageManager.NameNotFoundException error) {
+            Log.w(TAG, "Unable to read installed module version", error);
+            return "unknown";
+        }
+    }
+
     private void copyDiagnostics() {
-        String details = "WeType-Swipe " + BuildConfig.VERSION_NAME
+        String details = "WeType-Swipe " + getModuleVersion()
                 + "\nAndroid API " + android.os.Build.VERSION.SDK_INT
                 + "\nModule package: " + getPackageName()
                 + "\nTarget: " + TARGET
