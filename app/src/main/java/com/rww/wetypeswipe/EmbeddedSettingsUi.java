@@ -464,7 +464,8 @@ final class EmbeddedSettingsUi {
                     return current;
                 },
                 imported -> {
-                    if (saver != null) saver.save(ConfigSnapshot.copyOf(imported));
+                    if (saver == null) throw new IllegalStateException("内置配置保存器不可用");
+                    saver.save(ConfigSnapshot.copyOf(imported));
                     dialog.dismiss();
                 });
         return card;
@@ -495,9 +496,16 @@ final class EmbeddedSettingsUi {
         config.showTriggerHint = showHint.isChecked();
         config.vibration = vibration.isChecked();
         config.rebuildActionMap();
-        if (saver != null) saver.save(ConfigSnapshot.copyOf(config));
-        Toast.makeText(activity, "内置模块配置已保存并应用", Toast.LENGTH_SHORT).show();
-        dialog.dismiss();
+        try {
+            if (saver == null) throw new IllegalStateException("内置配置保存器不可用");
+            saver.save(ConfigSnapshot.copyOf(config));
+            Toast.makeText(activity, "内置模块配置已保存并应用", Toast.LENGTH_SHORT).show();
+            dialog.dismiss();
+        } catch (RuntimeException error) {
+            android.util.Log.e("WeTypeSwipeSettings", "Embedded settings save failed", error);
+            Toast.makeText(activity, "配置保存失败，原配置保留：" + error.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void showQwertyActionDialog(char letter) {
