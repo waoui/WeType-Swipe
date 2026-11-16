@@ -51,6 +51,13 @@ public final class MainHook extends XposedModule {
     private static final String TARGET = "com.tencent.wetype";
     private static final int PARAGRAPH_CONTEXT_CHARS = 65_536;
     private static final int NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT = 128;
+    private static final String EXTRA_OPEN_EMBEDDED_SETTINGS =
+            "com.rww.wetypeswipe.extra.OPEN_EMBEDDED_SETTINGS";
+    private static final long EMBEDDED_SETTINGS_LAUNCH_TIMEOUT_MS = 15000L;
+    // This state is local to the WeType process; the swipe request is carried through the
+    // WeType launcher Activity Intent, not through the separately installed module app.
+    private volatile boolean embeddedSettingsLaunchPending;
+    private volatile long embeddedSettingsLaunchDeadlineMs;
 
     private final GestureTracker tracker = new GestureTracker();
     private final Reflector reflector = new Reflector();
@@ -144,6 +151,15 @@ public final class MainHook extends XposedModule {
 
         hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
                 chain -> captureIme(chain.getThisObject()));
+
+        // The internal settings already work when hosted by an actual WeType Activity.
+        // Watch the native Activity lifecycle so a swipe can open that exact UI even when
+        // the IME's private window refuses TYPE_INPUT_METHOD_DIALOG child windows.
+        hookAfter(Activity.class.getDeclaredMethod("onResume"),
+                chain -> onTargetActivityResumed(chain.getThisObject()));
+        hookAfter(Activity.class.getDeclaredMethod("onNewIntent", android.content.Intent.class),
+                chain -> onTargetActivityNewIntent(chain.getThisObject(),
+                        (android.content.Intent) chain.getArg(0)));
         hookAfter(InputMethodService.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
                 chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
         hookBefore(InputMethodService.class.getDeclaredMethod("onStartInput", EditorInfo.class, boolean.class),
@@ -292,6 +308,74 @@ public final class MainHook extends XposedModule {
 
     private synchronized void applyEmbeddedConfig(Context context, Config config) {
         configBridge.applyEmbedded(context, config);
+    }
+
+    private void onTargetActivityResumed(Object object) {
+        if (!(object instanceof Activity)) return;
+        Activity activity = (Activity) object;
+        if (!TARGET.equals(activity.getPackageName())) return;
+        consumeEmbeddedSettingsRequest(activity, activity.getIntent());
+        scheduleEmbeddedSettingsOnActivity(activity);
+    }
+
+    private void onTargetActivityNewIntent(Object object, android.content.Intent intent) {
+        if (!(object instanceof Activity) || intent == null) return;
+        Activity activity = (Activity) object;
+        if (!TARGET.equals(activity.getPackageName())) return;
+        if (consumeEmbeddedSettingsRequest(activity, intent)) {
+            activity.setIntent(intent);
+            scheduleEmbeddedSettingsOnActivity(activity);
+        }
+    }
+
+    private boolean consumeEmbeddedSettingsRequest(Activity activity, android.content.Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(EXTRA_OPEN_EMBEDDED_SETTINGS, false)) {
+            return false;
+        }
+        // Clear the one-shot trigger before the Activity changes configuration or resumes.
+        intent.removeExtra(EXTRA_OPEN_EMBEDDED_SETTINGS);
+        embeddedSettingsLaunchDeadlineMs =
+                SystemClock.uptimeMillis() + EMBEDDED_SETTINGS_LAUNCH_TIMEOUT_MS;
+        embeddedSettingsLaunchPending = true;
+        logInfo("embedded settings request received in WeType activity "
+                + activity.getClass().getName());
+        return true;
+    }
+
+    private void scheduleEmbeddedSettingsOnActivity(Activity activity) {
+        if (!embeddedSettingsLaunchPending) return;
+        if (SystemClock.uptimeMillis() >= embeddedSettingsLaunchDeadlineMs) {
+            embeddedSettingsLaunchPending = false;
+            logInfo("embedded settings launch request expired");
+            return;
+        }
+        View decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+        if (decor == null) return;
+
+        // Let native splash/redirect activities finish first. The next resumed WeType
+        // Activity will still see pending=true and show the dialog on a stable window.
+        decor.postDelayed(() -> {
+            if (!embeddedSettingsLaunchPending) return;
+            if (SystemClock.uptimeMillis() >= embeddedSettingsLaunchDeadlineMs) {
+                embeddedSettingsLaunchPending = false;
+                logInfo("embedded settings launch request timed out before usable Activity");
+                return;
+            }
+            if (activity.isFinishing() || activity.isDestroyed()
+                    || !activity.hasWindowFocus()) return;
+            try {
+                ensureConfigSync(activity);
+                EmbeddedSettingsUi.show(activity,
+                        () -> ConfigSnapshot.copyOf(configBridge.current()),
+                        config -> applyEmbeddedConfig(activity, config));
+                embeddedSettingsLaunchPending = false;
+                logInfo("embedded settings opened inside WeType Activity: "
+                        + activity.getClass().getName());
+            } catch (Throwable throwable) {
+                // Keep pending so a subsequent real Activity may satisfy the request.
+                logError("embedded settings Activity dialog failed", throwable);
+            }
+        }, 350L);
     }
 
     private void captureIme(Object object) {
@@ -1675,29 +1759,51 @@ public final class MainHook extends XposedModule {
 
 
     private void openEmbeddedSettingsFromKeyboard(InputMethodService ime, View keyboard) {
-        try {
-            Activity host = keyboard == null ? null : findActivity(keyboard.getContext());
-            if (host != null && !host.isFinishing()) {
+        Activity host = keyboard == null ? null : findActivity(keyboard.getContext());
+        if (host != null && TARGET.equals(host.getPackageName())
+                && !host.isFinishing() && !host.isDestroyed()) {
+            try {
                 EmbeddedSettingsUi.show(host,
                         () -> ConfigSnapshot.copyOf(configBridge.current()),
                         config -> applyEmbeddedConfig(host, config));
-            } else {
-                EmbeddedSettingsUi.showFromKeyboard(ime,
-                        () -> ConfigSnapshot.copyOf(configBridge.current()),
-                        config -> applyEmbeddedConfig(ime, config));
+                logInfo("embedded settings opened in existing WeType Activity");
+                return;
+            } catch (Throwable throwable) {
+                logError("existing WeType Activity settings dialog failed", throwable);
             }
-            logInfo("embedded settings opened by keyboard swipe");
+        }
+
+        // Prefer the Activity-backed internal UI (same implementation as About 5-tap).
+        // Do NOT route a failed attempt to the external module APK's MainActivity.
+        try {
+            android.content.Intent target =
+                    ime.getPackageManager().getLaunchIntentForPackage(TARGET);
+            if (target == null) {
+                throw new IllegalStateException("微信输入法没有可启动的应用页面");
+            }
+            target.putExtra(EXTRA_OPEN_EMBEDDED_SETTINGS, true);
+            target.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            ime.startActivity(target);
+            logInfo("keyboard swipe launched WeType Activity for embedded settings");
+            return;
         } catch (Throwable throwable) {
-            logError("embedded keyboard settings dialog failed; opening standalone fallback", throwable);
-            try {
-                android.content.Intent fallback = new android.content.Intent();
-                fallback.setClassName("com.rww.wetypeswipe",
-                        "com.rww.wetypeswipe.MainActivity");
-                fallback.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                ime.startActivity(fallback);
-            } catch (Throwable fallbackError) {
-                logError("standalone settings fallback failed", fallbackError);
-            }
+            logError("opening WeType Activity for embedded settings failed", throwable);
+        }
+
+        // As a secondary option, try the corrected IME window token. Never silently
+        // switch to standalone settings: report a useful failure if both approaches fail.
+        try {
+            EmbeddedSettingsUi.showFromKeyboard(ime,
+                    () -> ConfigSnapshot.copyOf(configBridge.current()),
+                    config -> applyEmbeddedConfig(ime, config));
+            logInfo("embedded settings opened as IME dialog fallback");
+        } catch (Throwable throwable) {
+            logError("embedded IME dialog fallback also failed", throwable);
+            android.widget.Toast.makeText(ime,
+                    "无法打开内置模块设置，请从微信输入法关于页进入并查看 LSPosed 日志",
+                    android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
