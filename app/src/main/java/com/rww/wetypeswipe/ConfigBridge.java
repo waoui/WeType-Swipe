@@ -159,6 +159,12 @@ final class ConfigBridge {
             if (!persistTargetCache(context, imported)) return;
             migrationToken = null;
             setCurrent(imported, true);
+            // A target may have separate IME and launcher processes. Propagate the
+            // migrated snapshot immediately so another live target process is refreshed.
+            Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
+            changed.setPackage(targetPackage);
+            ConfigSnapshot.putInto(changed, imported);
+            context.sendBroadcast(changed);
             info("legacy module configuration migrated once, revision=" + imported.revision);
         } catch (Throwable error) {
             this.error("legacy configuration migration rejected", error);
