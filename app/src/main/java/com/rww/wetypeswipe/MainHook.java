@@ -530,13 +530,11 @@ public final class MainHook extends XposedModule {
             nativeSingleKeyLabelCache.remove(model);
             return;
         }
-        String identity = (visibleKey.t9 ? "t9:" : "qwerty:") + visibleKey.key + '\u0000';
+        String identity = (visibleKey.t9 ? "t9:" : "qwerty:") + visibleKey.key + '\u0000' + config.revision + '\u0000';
         String cached = nativeSingleKeyLabelCache.get(model);
         String label;
         if (cached == null || !cached.startsWith(identity)) {
-            int action = config.actionFor(visibleKey.key, visibleKey.t9);
-            label = action == Config.ACTION_NONE || action == Config.ACTION_DISABLE
-                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, action);
+            label = config.displayBindingLabel(visibleKey.key, visibleKey.t9);
             if (nativeSingleKeyLabelCache.size() >= NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT) {
                 nativeSingleKeyLabelCache.clear();
             }
@@ -744,13 +742,13 @@ public final class MainHook extends XposedModule {
         if (centers == null || centers.isEmpty()) return;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
-            int action = config.actionFor(key, false);
-            if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
+            String label = config.displayBindingLabel(key, false);
+            if (label.isEmpty()) continue;
             List<Float> positions = centers.get(key);
             if (positions == null) continue;
             for (Float x : positions) {
                 if (x != null) drawKeyFunctionText(canvas,
-                        config.labelFor(key, false, action), x, baseline);
+                        label, x, baseline);
             }
         }
     }
@@ -937,11 +935,11 @@ public final class MainHook extends XposedModule {
         if (geometry == null || geometry.isEmpty()) return;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
-            int action = config.actionFor(key, t9);
-            if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
+            String label = config.displayBindingLabel(key, t9);
+            if (label.isEmpty()) continue;
             float[] item = geometry.get(key);
             if (item == null || item.length < 2) continue;
-            drawKeyFunctionText(canvas, config.labelFor(key, t9, action), item[0], item[1]);
+            drawKeyFunctionText(canvas, label, item[0], item[1]);
         }
     }
 
@@ -1310,12 +1308,13 @@ public final class MainHook extends XposedModule {
 
 
             int requestedAction = keyInfo == null
-                    ? Config.ACTION_NONE
-                    : config.actionFor(keyInfo.key, keyInfo.t9);
+                    ? Config.ACTION_NONE : config.actionFor(keyInfo.key, keyInfo.t9);
+            int requestedUpAction = keyInfo == null
+                    ? Config.ACTION_NONE : config.actionForUp(keyInfo.key, keyInfo.t9);
             float thresholdPx = dp(keyboard,
                     keyInfo != null && keyInfo.t9 ? config.t9ThresholdDp : config.thresholdDp);
-            tracker.setBinding(keyboard, keyInfo, requestedAction, thresholdPx);
-            if (requestedAction == Config.ACTION_NONE) {
+            tracker.setBinding(keyboard, keyInfo, requestedAction, requestedUpAction, thresholdPx);
+            if (requestedAction == Config.ACTION_NONE && requestedUpAction == Config.ACTION_NONE) {
                 tracker.clear(keyboard);
             }
             keyboard.post(() -> hideKeyboardHint(0L));
@@ -1330,26 +1329,34 @@ public final class MainHook extends XposedModule {
         }
 
         if ((maskedAction == MotionEvent.ACTION_MOVE || maskedAction == MotionEvent.ACTION_UP)
-                && tracker.action != Config.ACTION_NONE) {
+                && (tracker.action != Config.ACTION_NONE || tracker.upAction != Config.ACTION_NONE)) {
             float deltaX = event.getX() - tracker.downX;
             float deltaY = event.getY() - tracker.downY;
-            float horizontalLimit = tracker.t9
-                    ? Math.max(tracker.thresholdPx * 0.9f, deltaY * 0.75f)
-                    : Math.max(tracker.thresholdPx * 2.5f, deltaY * 1.2f);
+            float distance = Math.abs(deltaY);
+            boolean upward = deltaY < 0f;
+            int directionAction = upward ? tracker.upAction : tracker.action;
+            boolean horizontallyValid = GestureDirection.withinHorizontalLimit(
+                    deltaX, distance, tracker.thresholdPx, tracker.t9);
+
             if (maskedAction == MotionEvent.ACTION_MOVE) {
-                if (deltaY >= tracker.thresholdPx * 0.30f
-                        && deltaY < tracker.thresholdPx
-                        && Math.abs(deltaX) <= horizontalLimit) {
+                if (distance >= tracker.thresholdPx * 0.30f
+                        && distance < tracker.thresholdPx
+                        && horizontallyValid && directionAction != Config.ACTION_NONE) {
                     final String hintLabel = tracker.displayKey;
-                    final int hintAction = tracker.action;
-                    keyboard.post(() -> showKeyboardHint(keyboard, hintLabel, hintAction, false));
-                } else if (deltaY < tracker.thresholdPx) {
+                    final int hintAction = directionAction;
+                    keyboard.post(() -> showKeyboardHint(keyboard, hintLabel, hintAction, false, upward));
+                } else {
                     keyboard.post(() -> hideKeyboardHint(0L));
                 }
             }
-            if (deltaY >= tracker.thresholdPx && Math.abs(deltaX) <= horizontalLimit) {
-                final int requestedAction = tracker.action;
+
+            int direction = GestureDirection.resolve(deltaX, deltaY, tracker.thresholdPx, tracker.t9,
+                    tracker.action != Config.ACTION_NONE, tracker.upAction != Config.ACTION_NONE);
+            if (direction != GestureDirection.NONE) {
+                final boolean triggeredUp = direction == GestureDirection.UP;
+                final int requestedAction = triggeredUp ? tracker.upAction : tracker.action;
                 final String key = tracker.key;
+                final boolean t9 = tracker.t9;
                 final Context context = keyboard.getContext();
                 tracker.markTriggered(keyboard);
 
@@ -1361,9 +1368,9 @@ public final class MainHook extends XposedModule {
                     catch (Throwable ignored) {}
                 }
 
-                keyboard.post(() -> showKeyboardHint(keyboard, null, requestedAction, true));
+                keyboard.post(() -> showKeyboardHint(keyboard, null, requestedAction, true, triggeredUp));
                 if (requestedAction != Config.ACTION_DISABLE) {
-                    keyboard.post(() -> performAction(context, keyboard, requestedAction, key));
+                    keyboard.post(() -> performAction(context, keyboard, requestedAction, key, t9, triggeredUp));
                 }
 
                 if (maskedAction == MotionEvent.ACTION_UP) tracker.clear(keyboard);
@@ -1379,7 +1386,7 @@ public final class MainHook extends XposedModule {
         return result;
     }
 
-    private void showKeyboardHint(View keyboard, String keyLabel, int action, boolean executed) {
+    private void showKeyboardHint(View keyboard, String keyLabel, int action, boolean executed, boolean upward) {
         Config displayConfig = configBridge.current();
         if (displayConfig == null || !displayConfig.showTriggerHint) {
             hideKeyboardHint(0L);
@@ -1404,11 +1411,11 @@ public final class MainHook extends XposedModule {
             String text;
             if (executed) {
                 text = action == Config.ACTION_DISABLE
-                        ? "✓ 已禁用下滑"
-                        : "✓ " + Config.actionName(action);
+                        ? (upward ? "✓ 已禁用上滑" : "✓ 已禁用下滑")
+                        : "✓ " + (upward ? "上滑 " : "下滑 ") + Config.actionName(action);
             } else {
                 String display = keyLabel == null || keyLabel.isEmpty() ? "当前键" : keyLabel;
-                text = display + " 下滑：" + Config.actionName(action);
+                text = display + (upward ? " 上滑：" : " 下滑：") + Config.actionName(action);
             }
             hint.setText(text);
             positionKeyboardHint(keyboard, hint);
@@ -1569,7 +1576,7 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private void performAction(Context context, View keyboard, int action, String key) {
+    private void performAction(Context context, View keyboard, int action, String key, boolean t9, boolean upward) {
         String actionName = Config.actionName(action);
         try {
             InputMethodService ime = imeRef.get();
@@ -1607,8 +1614,7 @@ public final class MainHook extends XposedModule {
 
             boolean success;
             if (action == Config.ACTION_INSERT_TEXT) {
-                boolean t9 = key != null && key.length() == 1 && key.charAt(0) >= '2' && key.charAt(0) <= '9';
-                success = performInsertText(connection, configBridge.current().textFor(key, t9));
+                success = performInsertText(connection, configBridge.current().textFor(key, t9, upward));
             } else if (ActionRegistry.isDocumentAction(action)) {
                 success = performDocumentAction(connection, action);
             } else if (ActionRegistry.isParagraphAction(action)) {
@@ -2264,6 +2270,7 @@ public final class MainHook extends XposedModule {
         private String key;
         private String displayKey;
         private int action;
+        private int upAction;
         private boolean t9;
         private boolean triggered;
         private boolean active;
@@ -2276,16 +2283,18 @@ public final class MainHook extends XposedModule {
             key = null;
             displayKey = null;
             action = Config.ACTION_NONE;
+            upAction = Config.ACTION_NONE;
             t9 = false;
             triggered = false;
             active = true;
         }
 
-        void setBinding(View keyboard, KeyInfo keyInfo, int newAction, float threshold) {
+        void setBinding(View keyboard, KeyInfo keyInfo, int newAction, int newUpAction, float threshold) {
             if (!matches(keyboard)) return;
             key = keyInfo == null ? null : keyInfo.key;
             displayKey = keyInfo == null ? null : keyInfo.display;
             action = newAction;
+            upAction = newUpAction;
             t9 = keyInfo != null && keyInfo.t9;
             thresholdPx = Math.max(1f, threshold);
         }
