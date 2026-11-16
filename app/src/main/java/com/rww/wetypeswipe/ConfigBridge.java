@@ -34,6 +34,7 @@ final class ConfigBridge {
     private volatile String migrationToken;
     private volatile long lastMigrationRequestTime;
     private BroadcastReceiver configReceiver;
+    private BroadcastReceiver legacyResponseReceiver;
 
     ConfigBridge(String targetPackage, Listener listener) {
         this.targetPackage = targetPackage;
@@ -80,42 +81,58 @@ final class ConfigBridge {
         if (receiverRegistered || context == null) return;
         configReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context receiverContext, Intent intent) {
-                if (intent == null) return;
-                String action = intent.getAction();
-                if (Config.ACTION_LEGACY_CONFIG_RESPONSE.equals(action)) {
-                    handleLegacyResponse(receiverContext, intent);
-                } else if (Config.ACTION_CONFIG_CHANGED.equals(action)) {
-                    if (intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
-                        try {
-                            Config incoming = ConfigCodec.fromIntent(intent);
-                            if (targetCacheLoaded && incoming.revision < current.revision) {
-                                info("ignored stale intra-WeType snapshot revision=" + incoming.revision);
-                                return;
-                            }
-                            if (persistTargetCache(receiverContext, incoming)) {
-                                setCurrent(incoming, true);
-                            }
-                        } catch (Throwable error) {
-                            error("intra-WeType snapshot rejected", error);
+                if (intent == null
+                        || !Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
+                if (intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
+                    try {
+                        Config incoming = ConfigCodec.fromIntent(intent);
+                        if (targetCacheLoaded && incoming.revision < current.revision) {
+                            info("ignored stale intra-WeType snapshot revision=" + incoming.revision);
+                            return;
                         }
-                    } else {
-                        loadFromTargetCache(receiverContext);
+                        if (persistTargetCache(receiverContext, incoming)) {
+                            setCurrent(incoming, true);
+                        }
+                    } catch (Throwable error) {
+                        error("intra-WeType snapshot rejected", error);
                     }
+                } else {
+                    loadFromTargetCache(receiverContext);
                 }
             }
         };
+        legacyResponseReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context receiverContext, Intent intent) {
+                if (intent != null
+                        && Config.ACTION_LEGACY_CONFIG_RESPONSE.equals(intent.getAction())) {
+                    handleLegacyResponse(receiverContext, intent);
+                }
+            }
+        };
+
+        boolean registeredLocal = false;
         try {
-            IntentFilter filter = new IntentFilter();
-            filter.addAction(Config.ACTION_CONFIG_CHANGED);
-            filter.addAction(Config.ACTION_LEGACY_CONFIG_RESPONSE);
+            IntentFilter local = new IntentFilter(Config.ACTION_CONFIG_CHANGED);
+            IntentFilter legacy = new IntentFilter(Config.ACTION_LEGACY_CONFIG_RESPONSE);
             if (Build.VERSION.SDK_INT >= 33) {
-                context.registerReceiver(configReceiver, filter, Context.RECEIVER_EXPORTED);
+                // Configuration changes are accepted only from the target application's
+                // own UID; the separate exported path carries only token-gated migration.
+                context.registerReceiver(configReceiver, local, Context.RECEIVER_NOT_EXPORTED);
+                registeredLocal = true;
+                context.registerReceiver(legacyResponseReceiver, legacy, Context.RECEIVER_EXPORTED);
             } else {
-                context.registerReceiver(configReceiver, filter);
+                context.registerReceiver(configReceiver, local);
+                registeredLocal = true;
+                context.registerReceiver(legacyResponseReceiver, legacy);
             }
             receiverRegistered = true;
         } catch (Throwable error) {
-            error("target config receiver registration failed", error);
+            if (registeredLocal) {
+                try { context.unregisterReceiver(configReceiver); }
+                catch (RuntimeException ignored) {}
+            }
+            receiverRegistered = false;
+            error("target config receivers registration failed", error);
         }
     }
 
