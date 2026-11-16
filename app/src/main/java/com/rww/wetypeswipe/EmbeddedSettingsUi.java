@@ -265,7 +265,7 @@ final class EmbeddedSettingsUi {
             row.setGravity(Gravity.CENTER);
             for (int digit : digits) {
                 View key = buildT9Key(digit);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 72), 1f);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(activity, 82), 1f);
                 params.setMargins(dp(activity, 4), dp(activity, 4), dp(activity, 4), dp(activity, 4));
                 row.addView(key, params);
             }
@@ -656,6 +656,7 @@ final class EmbeddedSettingsUi {
         if (upView != null) {
             upView.setText(up == Config.ACTION_NONE ? ""
                     : previewLabel(config.upQwertyLabels[index], up));
+            upView.setVisibility(up == Config.ACTION_NONE ? View.GONE : View.VISIBLE);
             upView.setTextColor(up == Config.ACTION_DISABLE ? DANGER
                     : up == Config.ACTION_NONE ? SECONDARY : ACCENT);
         }
@@ -685,6 +686,7 @@ final class EmbeddedSettingsUi {
         if (upView != null) {
             upView.setText(up == Config.ACTION_NONE ? ""
                     : previewLabel(config.upT9Labels[digit], up));
+            upView.setVisibility(up == Config.ACTION_NONE ? View.GONE : View.VISIBLE);
             upView.setTextColor(up == Config.ACTION_DISABLE ? DANGER
                     : up == Config.ACTION_NONE ? SECONDARY : ACCENT);
         }
