@@ -1,6 +1,6 @@
 package com.rww.wetypeswipe;
 
-import android.app.Activity;
+import android.content.Context;
 import android.app.AlertDialog;
 
 /** Shared affordances for embedded and standalone settings. */
@@ -9,15 +9,16 @@ final class SwipeUiHelper {
 
     private SwipeUiHelper() {}
 
-    static void chooseDirection(Activity activity, String key, String purpose,
+    static void chooseDirection(Context activity, String key, String purpose,
                                 DirectionChoice callback) {
-        new AlertDialog.Builder(activity)
+        AlertDialog dialog = new AlertDialog.Builder(activity)
                 .setTitle(key + " · " + purpose)
-                .setItems(new String[]{"↓ 下滑", "↑ 上滑"}, (dialog, selected) -> {
+                .setItems(new String[]{"↓ 下滑", "↑ 上滑"}, (selectedDialog, selected) -> {
                     if (callback != null) callback.selected(selected == 1);
                 })
                 .setNegativeButton("取消", null)
-                .show();
+                .create();
+        ImeDialogCompat.show(activity, dialog);
     }
 
     static String[] actionMenu(boolean upward) {
