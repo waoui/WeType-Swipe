@@ -20,6 +20,8 @@ final class ConfigCodec {
     private ConfigCodec() {}
 
     static Config fromPreferences(SharedPreferences preferences) {
+        // Do not apply the new preset to a legacy installation with any persisted state.
+        if (preferences.getAll().isEmpty()) return RecommendedDefaults.create();
         return read(new Reader() {
             @Override public String getString(String key, String fallback) {
                 return preferences.getString(key, fallback);
