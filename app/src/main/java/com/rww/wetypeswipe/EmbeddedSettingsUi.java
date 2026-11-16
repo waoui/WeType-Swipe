@@ -90,9 +90,7 @@ final class EmbeddedSettingsUi {
         if (ime == null || ime.getWindow() == null || ime.getWindow().getWindow() == null) {
             throw new IllegalStateException("输入法窗口尚未就绪");
         }
-        Window imeWindow = ime.getWindow().getWindow();
-        IBinder token = imeWindow.getDecorView().getWindowToken();
-        if (token == null) token = imeWindow.getAttributes().token;
+        IBinder token = ImeDialogCompat.inputMethodToken(ime);
         if (token == null) throw new IllegalStateException("缺少输入法窗口 Token");
         Config source = provider == null ? null : provider.get();
         new EmbeddedSettingsUi(ime, source, saver).showDialog(token);
