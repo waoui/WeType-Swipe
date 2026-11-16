@@ -942,6 +942,7 @@ public final class MainActivity extends Activity {
             qwertyKeys[i] = normalizedKey(ActionRegistry.keyFor(preset, QWERTY_ACTIONS[i]));
         }
         Arrays.fill(qwertyInsertTexts, "");
+        System.arraycopy(preset.qwertyLabels, 0, qwertyCustomLabels, 0, qwertyCustomLabels.length);
         disabledKeys = preset.disabledKeys;
         updateAllQwertyViews();
         Toast.makeText(this, "已应用截图推荐下滑预设（含 L 键设置），请点击保存", Toast.LENGTH_LONG).show();
