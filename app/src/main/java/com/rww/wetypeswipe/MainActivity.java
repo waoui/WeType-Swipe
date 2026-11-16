@@ -9,12 +9,14 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.view.View;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.ViewGroup;
-import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -48,42 +50,224 @@ public final class MainActivity extends Activity {
         setContentView(buildPage());
     }
 
-    private android.view.View buildPage() {
+    private static final int PAGE = Color.rgb(246, 248, 252);
+    private static final int INK = Color.rgb(32, 43, 62);
+    private static final int MUTED = Color.rgb(105, 115, 134);
+    private static final int BLUE = Color.rgb(35, 98, 210);
+    private static final int SOFT_BLUE = Color.rgb(231, 239, 255);
+    private static final int SEPARATOR = Color.rgb(237, 240, 246);
+
+    private View buildPage() {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.rgb(245, 247, 250));
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(26), dp(20), dp(26));
-        scroll.addView(content);
+        scroll.setClipToPadding(false);
+        scroll.setBackgroundColor(PAGE);
 
-        TextView title = text("模块维护与恢复", 22, Color.rgb(32, 36, 43));
-        title.setGravity(Gravity.CENTER);
-        content.addView(title);
-        TextView introduction = text(
-                "从 v1.13.0 起，只有微信输入法内置模块设置可以编辑配置。\n"
-                        + "本页面不保存第二份手势设置，避免两边显示不一致。",
-                14, Color.rgb(97, 104, 116));
-        introduction.setPadding(0, dp(14), 0, dp(18));
-        content.addView(introduction);
+        LinearLayout column = vertical();
+        column.setPadding(dp(18), dp(22), dp(18), dp(28));
+        scroll.addView(column, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        addAction(content, "打开微信输入法内置模块设置", () -> openEmbeddedSettings());
-        addAction(content, "导出旧模块配置 TXT（迁移备份）", () -> exportLegacyBackup());
-        addAction(content, "复制诊断信息", () -> copyDiagnostics());
-        addAction(content, "桌面图标显示／隐藏", () -> confirmToggleIcon());
+        TextView kicker = text("WETYPE  /  SWIPE", 11, BLUE);
+        kicker.setTypeface(Typeface.DEFAULT_BOLD);
+        kicker.setLetterSpacing(.12f);
+        column.addView(kicker);
 
-        String revision = legacyPrefs.contains(Config.KEY_REVISION)
-                ? String.valueOf(legacyPrefs.getInt(Config.KEY_REVISION, 0)) : "无";
-        String note = "模块版本：" + getModuleVersion()
-                + "\n旧模块本地配置修订号：" + revision
-                + "\n注意：旧修订号不代表当前微信输入法的生效配置。"
-                + "\n如果内置设置入口失效，可在微信输入法“关于”页连续点击图标 5 次。"
-                + "\n升级前的旧配置仍保存在模块私有存储中，不会自动删除。";
-        TextView details = text(note, 12, Color.rgb(101, 109, 122));
-        details.setPadding(dp(4), dp(18), dp(4), 0);
-        content.addView(details);
+        TextView heading = text("模块管理", 27, INK);
+        heading.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams headingLp = wrap();
+        headingLp.topMargin = dp(6);
+        column.addView(heading, headingLp);
 
+        TextView subheading = text(
+                "v" + getModuleVersion() + "  ·  单一内置配置",
+                13, MUTED);
+        LinearLayout.LayoutParams subheadingLp = wrap();
+        subheadingLp.topMargin = dp(5);
+        subheadingLp.bottomMargin = dp(20);
+        column.addView(subheading, subheadingLp);
+
+        LinearLayout hero = vertical();
+        hero.setPadding(dp(18), dp(19), dp(18), dp(18));
+        GradientDrawable heroBackground = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.rgb(35, 100, 217), Color.rgb(24, 62, 152)});
+        heroBackground.setCornerRadius(dp(19));
+        hero.setBackground(heroBackground);
+
+        TextView status = text("唯一配置入口", 12, Color.rgb(211, 231, 255));
+        status.setTypeface(Typeface.DEFAULT_BOLD);
+        hero.addView(status);
+
+        TextView heroTitle = text("微信输入法内置设置", 22, Color.WHITE);
+        heroTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams heroTitleLp = wrap();
+        heroTitleLp.topMargin = dp(8);
+        hero.addView(heroTitle, heroTitleLp);
+
+        TextView heroDesc = text(
+                "统一管理 26 键、九宫格、上下滑动作和配置备份，不再维护第二套设置。",
+                13, Color.rgb(233, 241, 255));
+        heroDesc.setLineSpacing(dp(3), 1f);
+        LinearLayout.LayoutParams descLp = wrap();
+        descLp.topMargin = dp(8);
+        hero.addView(heroDesc, descLp);
+
+        TextView mainAction = text("打开内置模块设置    ›", 15, BLUE);
+        mainAction.setTypeface(Typeface.DEFAULT_BOLD);
+        mainAction.setGravity(Gravity.CENTER);
+        mainAction.setMinHeight(dp(53));
+        mainAction.setBackground(shape(Color.WHITE, 12, 0, 0));
+        mainAction.setClickable(true);
+        mainAction.setFocusable(true);
+        mainAction.setContentDescription("打开微信输入法中的唯一设置界面");
+        mainAction.setOnClickListener(v -> openEmbeddedSettings());
+        LinearLayout.LayoutParams mainLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(53));
+        mainLp.topMargin = dp(17);
+        hero.addView(mainAction, mainLp);
+
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        heroLp.bottomMargin = dp(16);
+        column.addView(hero, heroLp);
+
+        TextView fallback = text("备用入口：微信输入法 → 关于 → 连续点击图标 5 次", 12, MUTED);
+        fallback.setPadding(dp(4), 0, dp(4), 0);
+        column.addView(fallback);
+
+        sectionTitle(column, "维护与恢复", "以下工具不会修改输入法的实际键位配置");
+        LinearLayout tools = vertical();
+        tools.setBackground(shape(Color.WHITE, 17, Color.rgb(232, 235, 242), 1));
+        addToolRow(tools, "备", "导出旧配置 TXT",
+                legacyPrefs.contains(Config.KEY_REVISION)
+                        ? "备份升级前的旧模块数据，不是当前生效配置"
+                        : "当前没有旧模块配置，建议在内置设置中导出",
+                this::exportLegacyBackup, true);
+        addToolRow(tools, "诊", "复制诊断信息",
+                "复制模块版本、Android 版本与作用域信息",
+                this::copyDiagnostics, true);
+        addToolRow(tools, "图", "桌面入口设置",
+                isIconHidden() ? "桌面图标已隐藏，可从 LSPosed 打开"
+                        : "桌面图标已显示，支持隐藏",
+                this::confirmToggleIcon, false);
+        column.addView(tools);
+
+        sectionTitle(column, "关于当前架构", null);
+        LinearLayout infoCard = vertical();
+        infoCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+        infoCard.setBackground(shape(Color.WHITE, 15, Color.rgb(232, 235, 242), 1));
+
+        TextView one = text("配置存储位置", 12, MUTED);
+        infoCard.addView(one);
+        TextView two = text("微信输入法内部私有存储", 15, INK);
+        two.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams twoLp = wrap();
+        twoLp.topMargin = dp(3);
+        infoCard.addView(two, twoLp);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(SEPARATOR);
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        dividerLp.topMargin = dp(13);
+        dividerLp.bottomMargin = dp(12);
+        infoCard.addView(divider, dividerLp);
+
+        TextView info = text("此页面只负责维护与故障恢复。"
+                + "如需修改键位、导入或导出当前配置，请使用上方入口。"
+                + "旧模块配置保留供回滚，不会自动覆盖输入法内的设置。", 12, MUTED);
+        info.setLineSpacing(dp(4), 1f);
+        infoCard.addView(info);
+        column.addView(infoCard);
         return scroll;
+    }
+
+    private void sectionTitle(LinearLayout parent, String heading, String subtitle) {
+        LinearLayout group = vertical();
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gp.topMargin = dp(19);
+        gp.bottomMargin = dp(9);
+        parent.addView(group, gp);
+
+        TextView label = text(heading, 16, INK);
+        label.setTypeface(Typeface.DEFAULT_BOLD);
+        group.addView(label);
+        if (subtitle != null) {
+            TextView note = text(subtitle, 12, MUTED);
+            LinearLayout.LayoutParams np = wrap();
+            np.topMargin = dp(3);
+            group.addView(note, np);
+        }
+    }
+
+    private void addToolRow(LinearLayout group, String glyph, String title,
+                            String subtitle, Runnable action, boolean withDivider) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(13), dp(12), dp(13));
+        row.setMinimumHeight(dp(72));
+        row.setClickable(true);
+        row.setFocusable(true);
+        row.setContentDescription(title + "，" + subtitle);
+        row.setOnClickListener(v -> action.run());
+
+        TextView icon = text(glyph, 15, BLUE);
+        icon.setTypeface(Typeface.DEFAULT_BOLD);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(shape(SOFT_BLUE, 10, 0, 0));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+
+        LinearLayout labels = vertical();
+        LinearLayout.LayoutParams labelsLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        labelsLp.leftMargin = dp(12);
+        row.addView(labels, labelsLp);
+
+        TextView name = text(title, 14, INK);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        labels.addView(name);
+        TextView description = text(subtitle, 11, MUTED);
+        LinearLayout.LayoutParams descriptionLp = wrap();
+        descriptionLp.topMargin = dp(3);
+        labels.addView(description, descriptionLp);
+
+        TextView chevron = text("›", 23, Color.rgb(153, 164, 183));
+        chevron.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams arrowLp = new LinearLayout.LayoutParams(dp(19), dp(40));
+        arrowLp.leftMargin = dp(6);
+        row.addView(chevron, arrowLp);
+        group.addView(row);
+
+        if (withDivider) {
+            View line = new View(this);
+            line.setBackgroundColor(SEPARATOR);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+            lp.leftMargin = dp(64);
+            group.addView(line, lp);
+        }
+    }
+
+    private LinearLayout vertical() {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        return column;
+    }
+
+    private LinearLayout.LayoutParams wrap() {
+        return new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private GradientDrawable shape(int color, int radius, int stroke, int strokeWidth) {
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(color);
+        background.setCornerRadius(dp(radius));
+        if (strokeWidth > 0) background.setStroke(dp(strokeWidth), stroke);
+        return background;
     }
 
     private void openEmbeddedSettings() {
@@ -196,17 +380,6 @@ public final class MainActivity extends Activity {
         return state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                 || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
                 || state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_UNTIL_USED;
-    }
-
-    private void addAction(LinearLayout container, String caption, Runnable callback) {
-        Button button = new Button(this);
-        button.setText(caption);
-        button.setAllCaps(false);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
-        params.bottomMargin = dp(8);
-        container.addView(button, params);
-        button.setOnClickListener(view -> callback.run());
     }
 
     private TextView text(String content, int size, int color) {
