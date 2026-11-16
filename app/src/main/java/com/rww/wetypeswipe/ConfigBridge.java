@@ -142,8 +142,6 @@ final class ConfigBridge {
     }
 
     private static Config defaultConfig() {
-        Config config = new Config();
-        config.rebuildActionMap();
-        return config;
+        return RecommendedDefaults.create();
     }
 }
