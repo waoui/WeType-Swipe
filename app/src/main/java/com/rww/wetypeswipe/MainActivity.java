@@ -324,7 +324,7 @@ public final class MainActivity extends Activity {
             row.setGravity(Gravity.CENTER);
             for (int digit : digits) {
                 View key = buildT9Key(digit);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(72), 1f);
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(82), 1f);
                 params.setMargins(dp(4), dp(4), dp(4), dp(4));
                 row.addView(key, params);
             }
@@ -973,6 +973,7 @@ public final class MainActivity extends Activity {
         actionView.setText(previewLabel(qwertyCustomLabels[index], action));
         upView.setText(up == Config.ACTION_NONE ? ""
                 : previewLabel(upQwertyCustomLabels[index], up));
+        upView.setVisibility(up == Config.ACTION_NONE ? View.GONE : View.VISIBLE);
         upView.setTextColor(up == Config.ACTION_DISABLE ? COLOR_DANGER
                 : up == Config.ACTION_NONE ? COLOR_SECONDARY : COLOR_ACCENT);
         keyView.setContentDescription(Character.toUpperCase(letter) + " 键，下滑："
@@ -998,6 +999,7 @@ public final class MainActivity extends Activity {
         if (t9UpActionViews[digit] != null) {
             t9UpActionViews[digit].setText(up == Config.ACTION_NONE ? ""
                     : previewLabel(upT9CustomLabels[digit], up));
+            t9UpActionViews[digit].setVisibility(up == Config.ACTION_NONE ? View.GONE : View.VISIBLE);
             t9UpActionViews[digit].setTextColor(up == Config.ACTION_DISABLE ? COLOR_DANGER
                     : up == Config.ACTION_NONE ? COLOR_SECONDARY : COLOR_ACCENT);
         }
