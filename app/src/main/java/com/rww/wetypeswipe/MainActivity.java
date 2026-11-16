@@ -64,6 +64,7 @@ public final class MainActivity extends Activity {
 
     private final String[] qwertyKeys = new String[QWERTY_ACTIONS.length];
     private final TextView[] qwertyActionViews = new TextView[26];
+    private final TextView[] qwertyUpActionViews = new TextView[26];
     private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
     private final String[] qwertyCustomLabels = new String[26];
     private final String[] qwertyInsertTexts = new String[26];
@@ -74,6 +75,7 @@ public final class MainActivity extends Activity {
 
     private final int[] t9Actions = new int[10];
     private final TextView[] t9ActionViews = new TextView[10];
+    private final TextView[] t9UpActionViews = new TextView[10];
     private final LinearLayout[] t9KeyViews = new LinearLayout[10];
     private final String[] t9CustomLabels = new String[10];
     private final String[] t9InsertTexts = new String[10];
@@ -270,6 +272,13 @@ public final class MainActivity extends Activity {
         key.setClickable(true);
         key.setFocusable(true);
 
+        TextView upActionView = text("", 9, COLOR_SECONDARY);
+        upActionView.setGravity(Gravity.CENTER);
+        upActionView.setSingleLine(true);
+        upActionView.setEllipsize(TextUtils.TruncateAt.END);
+        key.addView(upActionView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         TextView letterView = text(String.valueOf(Character.toUpperCase(letter)), 15, COLOR_TEXT);
         letterView.setTypeface(Typeface.DEFAULT_BOLD);
         letterView.setGravity(Gravity.CENTER);
@@ -277,8 +286,7 @@ public final class MainActivity extends Activity {
 
         TextView actionView = text("—", 9, COLOR_SECONDARY);
         actionView.setGravity(Gravity.CENTER);
-        actionView.setSingleLine(false);
-        actionView.setMaxLines(2);
+        actionView.setSingleLine(true);
         actionView.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -286,6 +294,7 @@ public final class MainActivity extends Activity {
         key.addView(actionView, actionParams);
 
         qwertyKeyViews[index] = key;
+        qwertyUpActionViews[index] = upActionView;
         qwertyActionViews[index] = actionView;
         updateQwertyKeyView(letter);
         key.setOnClickListener(v -> showQwertyActionDialog(letter));
@@ -361,6 +370,16 @@ public final class MainActivity extends Activity {
             return key;
         }
 
+        if (digit >= 2 && digit <= 9) {
+            TextView upAction = text("", 10, COLOR_SECONDARY);
+            upAction.setGravity(Gravity.CENTER);
+            upAction.setSingleLine(true);
+            upAction.setEllipsize(TextUtils.TruncateAt.END);
+            key.addView(upAction, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            t9UpActionViews[digit] = upAction;
+        }
+
         TextView digitView = text(String.valueOf(digit), 20, COLOR_TEXT);
         digitView.setTypeface(Typeface.DEFAULT_BOLD);
         digitView.setGravity(Gravity.CENTER);
@@ -373,8 +392,7 @@ public final class MainActivity extends Activity {
         if (digit >= 2 && digit <= 9) {
             TextView action = text("—", 10, COLOR_SECONDARY);
             action.setGravity(Gravity.CENTER);
-            action.setSingleLine(false);
-            action.setMaxLines(2);
+            action.setSingleLine(true);
             action.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -947,13 +965,16 @@ public final class MainActivity extends Activity {
         int index = letter - 'a';
         LinearLayout keyView = qwertyKeyViews[index];
         TextView actionView = qwertyActionViews[index];
-        if (keyView == null || actionView == null) return;
+        TextView upView = qwertyUpActionViews[index];
+        if (keyView == null || actionView == null || upView == null) return;
 
         int action = actionForQwertyKey(String.valueOf(letter));
         int up = upQwertyActions[index];
-        actionView.setText(SwipeUiHelper.directionalPreview(
-                previewLabel(qwertyCustomLabels[index], action),
-                previewLabel(upQwertyCustomLabels[index], up)));
+        actionView.setText(previewLabel(qwertyCustomLabels[index], action));
+        upView.setText(up == Config.ACTION_NONE ? ""
+                : previewLabel(upQwertyCustomLabels[index], up));
+        upView.setTextColor(up == Config.ACTION_DISABLE ? COLOR_DANGER
+                : up == Config.ACTION_NONE ? COLOR_SECONDARY : COLOR_ACCENT);
         keyView.setContentDescription(Character.toUpperCase(letter) + " 键，下滑："
                 + Config.actionName(action) + "；上滑：" + Config.actionName(up)
                 + "。点击选择方向后修改，长按设置标签");
@@ -973,9 +994,13 @@ public final class MainActivity extends Activity {
         if (t9ActionViews[digit] == null || t9KeyViews[digit] == null) return;
         int action = t9Actions[digit];
         int up = upT9Actions[digit];
-        t9ActionViews[digit].setText(SwipeUiHelper.directionalPreview(
-                previewLabel(t9CustomLabels[digit], action),
-                previewLabel(upT9CustomLabels[digit], up)));
+        t9ActionViews[digit].setText(previewLabel(t9CustomLabels[digit], action));
+        if (t9UpActionViews[digit] != null) {
+            t9UpActionViews[digit].setText(up == Config.ACTION_NONE ? ""
+                    : previewLabel(upT9CustomLabels[digit], up));
+            t9UpActionViews[digit].setTextColor(up == Config.ACTION_DISABLE ? COLOR_DANGER
+                    : up == Config.ACTION_NONE ? COLOR_SECONDARY : COLOR_ACCENT);
+        }
         t9KeyViews[digit].setContentDescription(digit + " 键，下滑："
                 + Config.actionName(action) + "；上滑：" + Config.actionName(up)
                 + "。点击选择方向后修改，长按设置标签");
