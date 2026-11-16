@@ -1,5 +1,6 @@
 package com.rww.wetypeswipe;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -23,7 +24,9 @@ final class EmbeddedBackupUi {
         heading.setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 8));
         container.addView(heading);
         TextView note = text(context,
-                "内置设置支持复制和粘贴配置；需文件保存/读取时使用独立模块设置导出 TXT。",
+                context instanceof Activity
+                        ? "所有设置仅保存在微信输入法内。可直接导出/导入 TXT，也可使用剪贴板备份。"
+                        : "当前是输入法悬浮窗口，剪贴板备份可用；需 TXT 文件导入/导出时请进入微信输入法关于页的内置设置。",
                 12, Color.rgb(101, 109, 122));
         note.setPadding(dp(context, 18), 0, dp(context, 18), dp(context, 10));
         container.addView(note);
@@ -80,6 +83,28 @@ final class EmbeddedBackupUi {
         });
         container.addView(row, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        if (context instanceof Activity) {
+            Activity activity = (Activity) context;
+            LinearLayout files = new LinearLayout(context);
+            files.setOrientation(LinearLayout.HORIZONTAL);
+            files.setPadding(dp(context, 12), 0, dp(context, 12), dp(context, 12));
+
+            TextView export = button(context, "导出 TXT 文件");
+            files.addView(export, new LinearLayout.LayoutParams(0, dp(context, 48), 1f));
+            export.setOnClickListener(view ->
+                    EmbeddedFileTransfer.exportText(activity, provider.current()));
+
+            TextView importFile = button(context, "导入 TXT 文件");
+            LinearLayout.LayoutParams importParams =
+                    new LinearLayout.LayoutParams(0, dp(context, 48), 1f);
+            importParams.leftMargin = dp(context, 8);
+            files.addView(importFile, importParams);
+            importFile.setOnClickListener(view ->
+                    EmbeddedFileTransfer.importText(activity, importer::importConfig));
+            container.addView(files, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
     }
 
     private static TextView button(Context context, String title) {
