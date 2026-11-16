@@ -68,6 +68,7 @@ public final class MainHook extends XposedModule {
         @Override public void error(String message, Throwable throwable) { logError(message, throwable); }
     });
     private final ConcurrentHashMap<Method, Boolean> keyboardLabelHookedMethods = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Method, Boolean> activityResultHooks = new ConcurrentHashMap<>();
     private final Paint keyboardLabelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private volatile WeakReference<View> nativeLabelGeometryViewRef = new WeakReference<>(null);
     private volatile Map<String, float[]> nativeLabelGeometry = new HashMap<>();
@@ -132,7 +133,7 @@ public final class MainHook extends XposedModule {
         if (!TARGET.equals(param.getPackageName())) return;
         try {
             installHooks();
-            logInfo("v1.11.9-test3 entered target package; hot-path performance optimizations enabled");
+            logInfo("WeType-Swipe v1.13 target process active; embedded config is authoritative");
         } catch (Throwable throwable) {
             logError("initialization failed", throwable);
         }
@@ -157,6 +158,19 @@ public final class MainHook extends XposedModule {
         // the IME's private window refuses TYPE_INPUT_METHOD_DIALOG child windows.
         hookAfter(Activity.class.getDeclaredMethod("onResume"),
                 chain -> onTargetActivityResumed(chain.getThisObject()));
+        // Activity subclasses can override onActivityResult without calling super.
+        // The concrete override is additionally hooked when that Activity resumes.
+        hookAfter(Activity.class.getDeclaredMethod("onActivityResult",
+                        int.class, int.class, android.content.Intent.class),
+                chain -> routeEmbeddedFileResult(chain.getThisObject(),
+                        (Integer) chain.getArg(0), (Integer) chain.getArg(1),
+                        (android.content.Intent) chain.getArg(2)));
+        hookAfter(Activity.class.getDeclaredMethod("onDestroy"),
+                chain -> {
+                    if (chain.getThisObject() instanceof Activity) {
+                        EmbeddedFileTransfer.abandonFor((Activity) chain.getThisObject());
+                    }
+                });
         hookAfter(Activity.class.getDeclaredMethod("onNewIntent", android.content.Intent.class),
                 chain -> onTargetActivityNewIntent(chain.getThisObject(),
                         (android.content.Intent) chain.getArg(0)));
@@ -321,8 +335,42 @@ public final class MainHook extends XposedModule {
         if (!(object instanceof Activity)) return;
         Activity activity = (Activity) object;
         if (!TARGET.equals(activity.getPackageName())) return;
+        ensureActivityResultHook(activity.getClass());
         consumeEmbeddedSettingsRequest(activity, activity.getIntent());
         scheduleEmbeddedSettingsOnActivity(activity);
+    }
+
+    private synchronized void ensureActivityResultHook(Class<?> targetActivity) {
+        for (Class<?> cls = targetActivity;
+             cls != null && Activity.class.isAssignableFrom(cls) && cls != Activity.class;
+             cls = cls.getSuperclass()) {
+            try {
+                Method method = cls.getDeclaredMethod("onActivityResult",
+                        int.class, int.class, android.content.Intent.class);
+                if (activityResultHooks.putIfAbsent(method, Boolean.TRUE) != null) continue;
+                try {
+                    hookAfter(method, chain -> routeEmbeddedFileResult(chain.getThisObject(),
+                            (Integer) chain.getArg(0), (Integer) chain.getArg(1),
+                            (android.content.Intent) chain.getArg(2)));
+                    logInfo("SAF result hook installed: " + cls.getName());
+                } catch (Throwable error) {
+                    activityResultHooks.remove(method);
+                    logError("SAF Activity result hook failed on " + cls.getName(), error);
+                }
+            } catch (NoSuchMethodException ignored) {
+                // This Activity inherits its parent's onActivityResult.
+            }
+        }
+    }
+
+    private void routeEmbeddedFileResult(Object object, int request, int result,
+                                         android.content.Intent data) {
+        if (!(object instanceof Activity)) return;
+        Activity activity = (Activity) object;
+        if (!TARGET.equals(activity.getPackageName())) return;
+        if (EmbeddedFileTransfer.handleResult(activity, request, result, data)) {
+            logInfo("embedded SAF config operation completed");
+        }
     }
 
     private void onTargetActivityNewIntent(Object object, android.content.Intent intent) {
