@@ -78,6 +78,52 @@ final class EmbeddedConfigEditor {
         config.rebuildActionMap();
     }
 
+    static void assignQwertyUp(Config config, char key, int action) {
+        if (config == null || key < 'a' || key > 'z') return;
+        int index = key - 'a';
+        config.upQwertyActions[index] = Config.validAction(action);
+        if (action != Config.ACTION_INSERT_TEXT) config.upQwertyTexts[index] = "";
+        config.rebuildActionMap();
+    }
+
+    static void assignQwertyUpText(Config config, char key, String text) {
+        if (config == null || key < 'a' || key > 'z') return;
+        int index = key - 'a';
+        config.upQwertyTexts[index] = Config.normalizeInsertedText(text);
+        config.upQwertyActions[index] = config.upQwertyTexts[index].isEmpty()
+                ? Config.ACTION_NONE : Config.ACTION_INSERT_TEXT;
+        config.rebuildActionMap();
+    }
+
+    static void assignT9Up(Config config, int digit, int action) {
+        if (config == null || digit < 2 || digit > 9) return;
+        config.upT9Actions[digit] = Config.validAction(action);
+        if (action != Config.ACTION_INSERT_TEXT) config.upT9Texts[digit] = "";
+        config.rebuildActionMap();
+    }
+
+    static void assignT9UpText(Config config, int digit, String text) {
+        if (config == null || digit < 2 || digit > 9) return;
+        config.upT9Texts[digit] = Config.normalizeInsertedText(text);
+        config.upT9Actions[digit] = config.upT9Texts[digit].isEmpty()
+                ? Config.ACTION_NONE : Config.ACTION_INSERT_TEXT;
+        config.rebuildActionMap();
+    }
+
+    static void clearQwertyUp(Config config) {
+        if (config == null) return;
+        Arrays.fill(config.upQwertyActions, Config.ACTION_NONE);
+        Arrays.fill(config.upQwertyTexts, "");
+        config.rebuildActionMap();
+    }
+
+    static void clearT9Up(Config config) {
+        if (config == null) return;
+        Arrays.fill(config.upT9Actions, Config.ACTION_NONE);
+        Arrays.fill(config.upT9Texts, "");
+        config.rebuildActionMap();
+    }
+
     static String keyForAction(Config config, int action) {
         return ActionRegistry.keyFor(config, action);
     }
