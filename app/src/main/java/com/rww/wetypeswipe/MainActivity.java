@@ -67,6 +67,9 @@ public final class MainActivity extends Activity {
     private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
     private final String[] qwertyCustomLabels = new String[26];
     private final String[] qwertyInsertTexts = new String[26];
+    private final int[] upQwertyActions = new int[26];
+    private final String[] upQwertyInsertTexts = new String[26];
+    private final String[] upQwertyCustomLabels = new String[26];
     private String disabledKeys = "";
 
     private final int[] t9Actions = new int[10];
@@ -74,6 +77,9 @@ public final class MainActivity extends Activity {
     private final LinearLayout[] t9KeyViews = new LinearLayout[10];
     private final String[] t9CustomLabels = new String[10];
     private final String[] t9InsertTexts = new String[10];
+    private final int[] upT9Actions = new int[10];
+    private final String[] upT9InsertTexts = new String[10];
+    private final String[] upT9CustomLabels = new String[10];
 
     private SeekBar threshold;
     private SeekBar t9Threshold;
@@ -86,7 +92,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setTitle("微信输入法下滑快捷键");
+        setTitle("微信输入法滑动快捷键");
         prefs = getSharedPreferences(Config.PREFS, MODE_PRIVATE);
         loadUiState();
         configureWindow();
@@ -170,7 +176,7 @@ public final class MainActivity extends Activity {
         eyebrow.setVisibility(compact ? View.GONE : View.VISIBLE);
         header.addView(eyebrow);
 
-        TextView title = text("下滑快捷键", compact ? 20 : 24, COLOR_TEXT);
+        TextView title = text("滑动快捷键", compact ? 20 : 24, COLOR_TEXT);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams titleParams = wrap();
         titleParams.topMargin = dp(3);
@@ -193,7 +199,7 @@ public final class MainActivity extends Activity {
     private View buildQwertyCard() {
         LinearLayout card = createCard(
                 "26 键快捷操作",
-                "点击设置动作，长按设置该按键显示的自定义标签。",
+                "点击按键选择上滑或下滑动作，长按可设置方向标签。",
                 true);
 
         LinearLayout keyboard = vertical();
@@ -236,6 +242,18 @@ public final class MainActivity extends Activity {
         tools.addView(clear, clearParams);
         clear.setOnClickListener(v -> confirmClearQwerty());
         card.addView(tools);
+        TextView clearUp = smallAction("清空 26 键上滑", true);
+        card.addView(clearUp, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        clearUp.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("清空 26 键上滑映射？")
+                .setMessage("仅清除上滑动作与文本，不影响现有下滑配置。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (d, w) -> {
+                    Arrays.fill(upQwertyActions, Config.ACTION_NONE);
+                    Arrays.fill(upQwertyInsertTexts, "");
+                    updateAllQwertyViews();
+                }).show());
         return card;
     }
 
@@ -259,7 +277,8 @@ public final class MainActivity extends Activity {
 
         TextView actionView = text("—", 9, COLOR_SECONDARY);
         actionView.setGravity(Gravity.CENTER);
-        actionView.setSingleLine(true);
+        actionView.setSingleLine(false);
+        actionView.setMaxLines(2);
         actionView.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -280,7 +299,7 @@ public final class MainActivity extends Activity {
     private View buildT9Card() {
         LinearLayout card = createCard(
                 "九宫格快捷操作",
-                "2–9 可设置。点击设置动作，长按设置该按键显示标签。",
+                "2–9 支持分别设置下滑和上滑，点击选方向，长按设标签。",
                 true);
 
         LinearLayout keyboard = vertical();
@@ -313,6 +332,18 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         clear.setOnClickListener(v -> confirmClearT9());
         card.addView(tools);
+        TextView clearUp = smallAction("清空九宫格上滑", true);
+        card.addView(clearUp, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        clearUp.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("清空九宫格上滑映射？")
+                .setMessage("仅清除 2–9 上滑动作与文本，不影响下滑。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (d, w) -> {
+                    Arrays.fill(upT9Actions, Config.ACTION_NONE);
+                    Arrays.fill(upT9InsertTexts, "");
+                    for (int digit = 2; digit <= 9; digit++) updateT9View(digit);
+                }).show());
         return card;
     }
 
@@ -342,7 +373,8 @@ public final class MainActivity extends Activity {
         if (digit >= 2 && digit <= 9) {
             TextView action = text("—", 10, COLOR_SECONDARY);
             action.setGravity(Gravity.CENTER);
-            action.setSingleLine(true);
+            action.setSingleLine(false);
+            action.setMaxLines(2);
             action.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -509,13 +541,18 @@ public final class MainActivity extends Activity {
     }
 
     private void showQwertyActionDialog(char letter) {
+        SwipeUiHelper.chooseDirection(this, String.valueOf(Character.toUpperCase(letter)),
+                "设置动作", upward -> showQwertyActionDialog(letter, upward));
+    }
+
+    private void showQwertyActionDialog(char letter, boolean upward) {
         String key = String.valueOf(letter);
-        int currentAction = actionForQwertyKey(key);
+        int currentAction = upward ? upQwertyActions[letter - 'a'] : actionForQwertyKey(key);
         int selected = Config.menuPositionForAction(currentAction);
 
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(Character.toUpperCase(letter) + " 键下滑执行")
-                .setSingleChoiceItems(Config.ACTION_MENU_LABELS, selected, null)
+                .setTitle(Character.toUpperCase(letter) + (upward ? " 键上滑执行" : " 键下滑执行"))
+                .setSingleChoiceItems(SwipeUiHelper.actionMenu(upward), selected, null)
                 .setNegativeButton("取消", null)
                 .create();
         dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
@@ -524,12 +561,23 @@ public final class MainActivity extends Activity {
                     dialog.dismiss();
                     if (action == Config.ACTION_INSERT_TEXT) {
                         int index = letter - 'a';
-                        showInsertTextDialog(Character.toUpperCase(letter) + " 键输入内容",
-                                qwertyInsertTexts[index], value -> {
-                                    assignQwertyAction(key, Config.ACTION_NONE);
-                                    qwertyInsertTexts[index] = value;
+                        showInsertTextDialog(Character.toUpperCase(letter)
+                                + (upward ? " 键上滑输入内容" : " 键下滑输入内容"),
+                                upward ? upQwertyInsertTexts[index] : qwertyInsertTexts[index], value -> {
+                                    if (upward) {
+                                        upQwertyActions[index] = Config.ACTION_INSERT_TEXT;
+                                        upQwertyInsertTexts[index] = value;
+                                    } else {
+                                        assignQwertyAction(key, Config.ACTION_NONE);
+                                        qwertyInsertTexts[index] = value;
+                                    }
                                     updateAllQwertyViews();
                                 });
+                    } else if (upward) {
+                        int index = letter - 'a';
+                        upQwertyActions[index] = action;
+                        upQwertyInsertTexts[index] = "";
+                        updateAllQwertyViews();
                     } else {
                         assignQwertyAction(key, action);
                     }
@@ -578,19 +626,34 @@ public final class MainActivity extends Activity {
     private interface LabelValueChanged { void apply(String value); }
 
     private void showQwertyLabelDialog(char letter) {
-        int action = actionForQwertyKey(String.valueOf(letter));
-        showLabelDialog(Character.toUpperCase(letter) + " 键显示标签",
-                qwertyCustomLabels[letter - 'a'], Config.shortActionLabel(action), value -> {
-                    qwertyCustomLabels[letter - 'a'] = value;
+        SwipeUiHelper.chooseDirection(this, String.valueOf(Character.toUpperCase(letter)),
+                "设置标签", upward -> showQwertyLabelDialog(letter, upward));
+    }
+
+    private void showQwertyLabelDialog(char letter, boolean upward) {
+        int index = letter - 'a';
+        int action = upward ? upQwertyActions[index] : actionForQwertyKey(String.valueOf(letter));
+        showLabelDialog(Character.toUpperCase(letter) + (upward ? " 键上滑标签" : " 键下滑标签"),
+                upward ? upQwertyCustomLabels[index] : qwertyCustomLabels[index],
+                Config.shortActionLabel(action), value -> {
+                    if (upward) upQwertyCustomLabels[index] = value;
+                    else qwertyCustomLabels[index] = value;
                     updateQwertyKeyView(letter);
                 });
     }
 
     private void showT9LabelDialog(int digit) {
-        int action = t9Actions[digit];
-        showLabelDialog(Config.t9Label(digit) + " 显示标签",
-                t9CustomLabels[digit], Config.shortActionLabel(action), value -> {
-                    t9CustomLabels[digit] = value;
+        SwipeUiHelper.chooseDirection(this, Config.t9Label(digit),
+                "设置标签", upward -> showT9LabelDialog(digit, upward));
+    }
+
+    private void showT9LabelDialog(int digit, boolean upward) {
+        int action = upward ? upT9Actions[digit] : t9Actions[digit];
+        showLabelDialog(Config.t9Label(digit) + (upward ? " 上滑标签" : " 下滑标签"),
+                upward ? upT9CustomLabels[digit] : t9CustomLabels[digit],
+                Config.shortActionLabel(action), value -> {
+                    if (upward) upT9CustomLabels[digit] = value;
+                    else t9CustomLabels[digit] = value;
                     updateT9View(digit);
                 });
     }
@@ -705,10 +768,15 @@ public final class MainActivity extends Activity {
     }
 
     private void showT9ActionDialog(int digit) {
-        int current = Config.menuPositionForAction(t9Actions[digit]);
+        SwipeUiHelper.chooseDirection(this, Config.t9Label(digit),
+                "设置动作", upward -> showT9ActionDialog(digit, upward));
+    }
+
+    private void showT9ActionDialog(int digit, boolean upward) {
+        int current = Config.menuPositionForAction(upward ? upT9Actions[digit] : t9Actions[digit]);
         AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle(Config.t9Label(digit) + " 下滑执行")
-                .setSingleChoiceItems(Config.ACTION_MENU_LABELS, current, null)
+                .setTitle(Config.t9Label(digit) + (upward ? " 上滑执行" : " 下滑执行"))
+                .setSingleChoiceItems(SwipeUiHelper.actionMenu(upward), current, null)
                 .setNegativeButton("取消", null)
                 .create();
         dialog.setOnShowListener(ignored -> dialog.getListView().setOnItemClickListener(
@@ -716,14 +784,26 @@ public final class MainActivity extends Activity {
                     int action = Config.actionForMenuPosition(position);
                     dialog.dismiss();
                     if (action == Config.ACTION_INSERT_TEXT) {
-                        showInsertTextDialog(Config.t9Label(digit) + " 输入内容", t9InsertTexts[digit], value -> {
-                            t9Actions[digit] = Config.ACTION_INSERT_TEXT;
-                            t9InsertTexts[digit] = value;
+                        showInsertTextDialog(Config.t9Label(digit)
+                                + (upward ? " 上滑输入内容" : " 下滑输入内容"),
+                                upward ? upT9InsertTexts[digit] : t9InsertTexts[digit], value -> {
+                            if (upward) {
+                                upT9Actions[digit] = Config.ACTION_INSERT_TEXT;
+                                upT9InsertTexts[digit] = value;
+                            } else {
+                                t9Actions[digit] = Config.ACTION_INSERT_TEXT;
+                                t9InsertTexts[digit] = value;
+                            }
                             updateT9View(digit);
                         });
                     } else {
-                        t9Actions[digit] = action;
-                        t9InsertTexts[digit] = "";
+                        if (upward) {
+                            upT9Actions[digit] = action;
+                            upT9InsertTexts[digit] = "";
+                        } else {
+                            t9Actions[digit] = action;
+                            t9InsertTexts[digit] = "";
+                        }
                         updateT9View(digit);
                     }
                 }));
@@ -782,6 +862,12 @@ public final class MainActivity extends Activity {
         System.arraycopy(config.t9Actions, 0, t9Actions, 0, t9Actions.length);
         System.arraycopy(config.t9Labels, 0, t9CustomLabels, 0, t9CustomLabels.length);
         System.arraycopy(config.t9Texts, 0, t9InsertTexts, 0, t9InsertTexts.length);
+        System.arraycopy(config.upQwertyActions, 0, upQwertyActions, 0, upQwertyActions.length);
+        System.arraycopy(config.upQwertyTexts, 0, upQwertyInsertTexts, 0, upQwertyInsertTexts.length);
+        System.arraycopy(config.upQwertyLabels, 0, upQwertyCustomLabels, 0, upQwertyCustomLabels.length);
+        System.arraycopy(config.upT9Actions, 0, upT9Actions, 0, upT9Actions.length);
+        System.arraycopy(config.upT9Texts, 0, upT9InsertTexts, 0, upT9InsertTexts.length);
+        System.arraycopy(config.upT9Labels, 0, upT9CustomLabels, 0, upT9CustomLabels.length);
     }
 
     private Config configFromUi(int revision) {
@@ -801,6 +887,12 @@ public final class MainActivity extends Activity {
         System.arraycopy(t9CustomLabels, 0, config.t9Labels, 0, t9CustomLabels.length);
         System.arraycopy(qwertyInsertTexts, 0, config.qwertyTexts, 0, qwertyInsertTexts.length);
         System.arraycopy(t9InsertTexts, 0, config.t9Texts, 0, t9InsertTexts.length);
+        System.arraycopy(upQwertyActions, 0, config.upQwertyActions, 0, upQwertyActions.length);
+        System.arraycopy(upQwertyInsertTexts, 0, config.upQwertyTexts, 0, upQwertyInsertTexts.length);
+        System.arraycopy(upQwertyCustomLabels, 0, config.upQwertyLabels, 0, upQwertyCustomLabels.length);
+        System.arraycopy(upT9Actions, 0, config.upT9Actions, 0, upT9Actions.length);
+        System.arraycopy(upT9InsertTexts, 0, config.upT9Texts, 0, upT9InsertTexts.length);
+        System.arraycopy(upT9CustomLabels, 0, config.upT9Labels, 0, upT9CustomLabels.length);
         config.rebuildActionMap();
         return config;
     }
@@ -858,13 +950,17 @@ public final class MainActivity extends Activity {
         if (keyView == null || actionView == null) return;
 
         int action = actionForQwertyKey(String.valueOf(letter));
-        actionView.setText(previewLabel(qwertyCustomLabels[index], action));
+        int up = upQwertyActions[index];
+        actionView.setText(SwipeUiHelper.directionalPreview(
+                previewLabel(qwertyCustomLabels[index], action),
+                previewLabel(upQwertyCustomLabels[index], up)));
         keyView.setContentDescription(Character.toUpperCase(letter) + " 键，下滑："
-                + Config.actionName(action) + "。点击修改，长按设置标签");
+                + Config.actionName(action) + "；上滑：" + Config.actionName(up)
+                + "。点击选择方向后修改，长按设置标签");
         if (action == Config.ACTION_DISABLE) {
             actionView.setTextColor(COLOR_DANGER);
             keyView.setBackground(rounded(COLOR_DANGER_SOFT, 9, 1, Color.rgb(245, 190, 190)));
-        } else if (action == Config.ACTION_NONE) {
+        } else if (action == Config.ACTION_NONE && up == Config.ACTION_NONE) {
             actionView.setTextColor(COLOR_SECONDARY);
             keyView.setBackground(rounded(COLOR_KEY_IDLE, 9, 1, COLOR_KEY_STROKE));
         } else {
@@ -876,14 +972,18 @@ public final class MainActivity extends Activity {
     private void updateT9View(int digit) {
         if (t9ActionViews[digit] == null || t9KeyViews[digit] == null) return;
         int action = t9Actions[digit];
-        t9ActionViews[digit].setText(previewLabel(t9CustomLabels[digit], action));
+        int up = upT9Actions[digit];
+        t9ActionViews[digit].setText(SwipeUiHelper.directionalPreview(
+                previewLabel(t9CustomLabels[digit], action),
+                previewLabel(upT9CustomLabels[digit], up)));
         t9KeyViews[digit].setContentDescription(digit + " 键，下滑："
-                + Config.actionName(action) + "。点击修改，长按设置标签");
+                + Config.actionName(action) + "；上滑：" + Config.actionName(up)
+                + "。点击选择方向后修改，长按设置标签");
         if (action == Config.ACTION_DISABLE) {
             t9ActionViews[digit].setTextColor(COLOR_DANGER);
             t9KeyViews[digit].setBackground(
                     rounded(COLOR_DANGER_SOFT, 12, 1, Color.rgb(245, 190, 190)));
-        } else if (action == Config.ACTION_NONE) {
+        } else if (action == Config.ACTION_NONE && up == Config.ACTION_NONE) {
             t9ActionViews[digit].setTextColor(COLOR_SECONDARY);
             t9KeyViews[digit].setBackground(rounded(COLOR_KEY_IDLE, 12, 1, COLOR_KEY_STROKE));
         } else {
