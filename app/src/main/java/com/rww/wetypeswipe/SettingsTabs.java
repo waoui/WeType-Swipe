@@ -1,6 +1,6 @@
 package com.rww.wetypeswipe;
 
-import android.app.Activity;
+import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Typeface;
@@ -22,18 +22,18 @@ final class SettingsTabs {
     private static final int ACCENT = Color.rgb(36, 103, 214);
     private static final int TRACK = Color.rgb(237, 241, 247);
 
-    private final Activity activity;
+    private final Context activity;
     private final ScrollView scroll;
     private final View[] pages;
     private final TextView[] buttons = new TextView[TITLES.length];
 
-    private SettingsTabs(Activity activity, ScrollView scroll, View[] pages) {
+    private SettingsTabs(Context activity, ScrollView scroll, View[] pages) {
         this.activity = activity;
         this.scroll = scroll;
         this.pages = pages;
     }
 
-    static View create(Activity activity, ScrollView scroll, View qwerty, View t9, View options) {
+    static View create(Context activity, ScrollView scroll, View qwerty, View t9, View options) {
         SettingsTabs tabs = new SettingsTabs(activity, scroll, new View[]{qwerty, t9, options});
         return tabs.build();
     }
