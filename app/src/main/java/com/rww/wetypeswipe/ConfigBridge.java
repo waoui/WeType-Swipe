@@ -138,18 +138,14 @@ final class ConfigBridge {
     }
 
     private synchronized void handleLegacyResponse(Context context, Intent intent) {
-        String expectedToken = migrationToken;
-        if (expectedToken == null
-                || !expectedToken.equals(intent.getStringExtra(Config.EXTRA_MIGRATION_TOKEN))
-                || !intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
-            info("ignored unrequested legacy config snapshot");
-            return;
-        }
         SharedPreferences prefs = context.getSharedPreferences(
                 Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE);
-        if (targetCacheLoaded || prefs.contains(Config.KEY_REVISION)) {
-            migrationToken = null;
-            info("ignored legacy config: authoritative WeType settings already exist");
+        boolean alreadySaved = prefs.contains(Config.KEY_REVISION);
+        if (!LegacyMigrationPolicy.canImport(targetCacheLoaded, alreadySaved,
+                migrationToken, intent.getStringExtra(Config.EXTRA_MIGRATION_TOKEN),
+                intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false))) {
+            if (targetCacheLoaded || alreadySaved) migrationToken = null;
+            info("ignored legacy response: invalid token or authoritative WeType config exists");
             return;
         }
         try {
