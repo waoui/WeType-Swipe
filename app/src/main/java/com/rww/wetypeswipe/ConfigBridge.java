@@ -34,6 +34,14 @@ final class ConfigBridge {
     Config current() { return current; }
     boolean isLoaded() { return targetCacheLoaded; }
 
+    /** Ask a running WeType process to re-send its authoritative active configuration. */
+    static void requestLatestFromTarget(Context context) {
+        if (context == null) return;
+        Intent request = new Intent(Config.ACTION_CONFIG_REQUEST);
+        request.setPackage("com.tencent.wetype");
+        context.sendBroadcast(request);
+    }
+
     void ensureSync(Context context) {
         if (context == null) return;
         Context stable = stableContext(context);
@@ -60,10 +68,7 @@ final class ConfigBridge {
             // The embedded editor runs in the WeType process, while the standalone editor
             // persists settings in the module app sandbox. Mirror every embedded save back to
             // the module package so both entry points keep one effective configuration.
-            Intent moduleSync = new Intent(Config.ACTION_CONFIG_CHANGED);
-            moduleSync.setClassName(MODULE_PACKAGE, MODULE_SYNC_RECEIVER);
-            ConfigSnapshot.putInto(moduleSync, config);
-            stable.sendBroadcast(moduleSync);
+            mirrorToModule(stable, config);
 
             listener.info("embedded settings saved revision=" + config.revision);
         } catch (Throwable throwable) {
@@ -76,7 +81,19 @@ final class ConfigBridge {
         if (receiverRegistered || context == null) return;
         configReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context receiverContext, Intent intent) {
-                if (intent == null || !Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
+                if (intent == null) return;
+                if (Config.ACTION_CONFIG_REQUEST.equals(intent.getAction())) {
+                    if (!targetCacheLoaded) loadFromTargetCache(receiverContext);
+                    if (targetCacheLoaded && current != null) {
+                        mirrorToModule(receiverContext, current);
+                        listener.info("responded to module config refresh request revision="
+                                + current.revision);
+                    } else {
+                        listener.info("config refresh requested but no target cache loaded");
+                    }
+                    return;
+                }
+                if (!Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
                 if (intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
                     try {
                         Config config = ConfigCodec.fromIntent(intent);
@@ -92,6 +109,7 @@ final class ConfigBridge {
         };
         try {
             IntentFilter filter = new IntentFilter(Config.ACTION_CONFIG_CHANGED);
+            filter.addAction(Config.ACTION_CONFIG_REQUEST);
             if (Build.VERSION.SDK_INT >= 33) {
                 context.registerReceiver(configReceiver, filter, Context.RECEIVER_EXPORTED);
             } else {
@@ -103,12 +121,21 @@ final class ConfigBridge {
         }
     }
 
+    private void mirrorToModule(Context context, Config config) {
+        Intent sync = new Intent(Config.ACTION_CONFIG_CHANGED);
+        sync.setClassName(MODULE_PACKAGE, MODULE_SYNC_RECEIVER);
+        ConfigSnapshot.putInto(sync, config);
+        context.sendBroadcast(sync);
+    }
+
     private synchronized void persistTargetCache(Context context, Config config) {
         try {
             SharedPreferences.Editor editor = context.getSharedPreferences(
                     Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE).edit();
             ConfigCodec.writeToPreferences(editor, config);
-            editor.commit();
+            if (!editor.commit()) {
+                listener.error("target config cache write returned false", null);
+            }
         } catch (Throwable throwable) {
             listener.error("target config cache write failed", throwable);
         }
