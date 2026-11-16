@@ -461,7 +461,7 @@ public final class MainActivity extends Activity {
         LinearLayout card = createCard("通用设置", null, false);
 
         showKeyLabels = new CheckBox(this);
-        showKeyLabels.setText("显示按键底部功能文字");
+        showKeyLabels.setText("显示按键上下滑功能文字");
         showKeyLabels.setTextSize(15);
         showKeyLabels.setTextColor(COLOR_TEXT);
         showKeyLabels.setPadding(dp(12), dp(6), dp(12), dp(6));
@@ -472,7 +472,7 @@ public final class MainActivity extends Activity {
         card.addView(divider());
 
         showTriggerHint = new CheckBox(this);
-        showTriggerHint.setText("显示下滑触发提示");
+        showTriggerHint.setText("显示滑动触发提示");
         showTriggerHint.setTextSize(15);
         showTriggerHint.setTextColor(COLOR_TEXT);
         showTriggerHint.setPadding(dp(12), dp(6), dp(12), dp(6));
@@ -481,7 +481,7 @@ public final class MainActivity extends Activity {
         card.addView(showTriggerHint, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView displayNote = text("关闭后只隐藏提示，不影响下滑功能。", 12, COLOR_SECONDARY);
+        TextView displayNote = text("关闭后只隐藏提示，不影响上滑或下滑功能。", 12, COLOR_SECONDARY);
         displayNote.setPadding(dp(18), 0, dp(18), dp(12));
         card.addView(displayNote);
         card.addView(divider());
