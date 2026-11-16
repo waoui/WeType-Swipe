@@ -606,7 +606,7 @@ public final class MainActivity extends Activity {
                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("text/plain");
-                intent.putExtra(Intent.EXTRA_TITLE, "WeType-Swipe-配置备份-v1.12.0-test3.txt");
+                intent.putExtra(Intent.EXTRA_TITLE, "WeType-Swipe-配置备份-v1.12.1.txt");
                 startActivityForResult(intent, REQUEST_EXPORT_CONFIG);
             } catch (Throwable e) {
                 Log.e("WeTypeSwipe", "export picker failed", e);
@@ -631,6 +631,24 @@ public final class MainActivity extends Activity {
             }
         });
         card.addView(buttons);
+        TextView syncButton = smallAction("从微信输入法读取最新配置", false);
+        LinearLayout.LayoutParams syncParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        syncParams.leftMargin = dp(12);
+        syncParams.rightMargin = dp(12);
+        syncParams.bottomMargin = dp(12);
+        card.addView(syncButton, syncParams);
+        syncButton.setOnClickListener(v -> {
+            try {
+                ConfigBridge.requestLatestFromTarget(this);
+                Toast.makeText(this,
+                        "已向微信输入法请求配置；如输入法未运行，请先打开键盘再返回",
+                        Toast.LENGTH_LONG).show();
+            } catch (RuntimeException ex) {
+                Log.e("WeTypeSwipeSync", "Manual config refresh request failed", ex);
+                Toast.makeText(this, "同步请求失败：" + ex.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
         return card;
     }
 
@@ -1095,6 +1113,15 @@ public final class MainActivity extends Activity {
     }
 
     private void save() {
+        if (prefs.getBoolean(ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING, false)
+                && !ConfigFingerprint.of(ConfigCodec.fromPreferences(prefs))
+                        .equals(loadedConfigFingerprint)) {
+            refreshAfterEmbeddedSave();
+            Toast.makeText(this,
+                    "检测到内置设置的新配置，请先处理同步冲突再保存",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
         HashSet<String> used = new HashSet<>();
         for (String key : qwertyKeys) {
             if (!key.isEmpty() && !used.add(key)) {
