@@ -47,8 +47,10 @@ final class EmbeddedSettingsUi {
     private final Config config;
     private final ConfigSaver saver;
     private final TextView[] qwertyActionViews = new TextView[26];
+    private final TextView[] qwertyUpActionViews = new TextView[26];
     private final LinearLayout[] qwertyKeyViews = new LinearLayout[26];
     private final TextView[] t9ActionViews = new TextView[10];
+    private final TextView[] t9UpActionViews = new TextView[10];
     private final LinearLayout[] t9KeyViews = new LinearLayout[10];
     private SeekBar qwertyThreshold;
     private SeekBar t9Threshold;
@@ -220,20 +222,26 @@ final class EmbeddedSettingsUi {
         key.setPadding(dp(activity, 1), dp(activity, 4), dp(activity, 1), dp(activity, 4));
         key.setClickable(true);
         key.setFocusable(true);
+        TextView upAction = text(activity, "", 9, SECONDARY);
+        upAction.setGravity(Gravity.CENTER);
+        upAction.setSingleLine(true);
+        upAction.setEllipsize(TextUtils.TruncateAt.END);
+        key.addView(upAction, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         TextView name = text(activity, String.valueOf(Character.toUpperCase(letter)), 15, TEXT);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         name.setGravity(Gravity.CENTER);
         key.addView(name);
         TextView action = text(activity, "—", 9, SECONDARY);
         action.setGravity(Gravity.CENTER);
-        action.setSingleLine(false);
-        action.setMaxLines(2);
+        action.setSingleLine(true);
         action.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         actionParams.topMargin = dp(activity, 3);
         key.addView(action, actionParams);
         qwertyKeyViews[index] = key;
+        qwertyUpActionViews[index] = upAction;
         qwertyActionViews[index] = action;
         key.setOnClickListener(v -> showQwertyActionDialog(letter));
         key.setOnLongClickListener(v -> {
@@ -298,7 +306,16 @@ final class EmbeddedSettingsUi {
     private View buildT9Key(int digit) {
         LinearLayout key = vertical();
         key.setGravity(Gravity.CENTER);
-        key.setPadding(dp(activity, 6), dp(activity, 5), dp(activity, 6), dp(activity, 5));
+        key.setPadding(dp(activity, 6), dp(activity, 3), dp(activity, 6), dp(activity, 3));
+        if (digit >= 2 && digit <= 9) {
+            TextView upAction = text(activity, "", 10, SECONDARY);
+            upAction.setGravity(Gravity.CENTER);
+            upAction.setSingleLine(true);
+            upAction.setEllipsize(TextUtils.TruncateAt.END);
+            key.addView(upAction, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            t9UpActionViews[digit] = upAction;
+        }
         TextView digitView = text(activity, String.valueOf(digit), 20, TEXT);
         digitView.setTypeface(Typeface.DEFAULT_BOLD);
         digitView.setGravity(Gravity.CENTER);
@@ -309,8 +326,7 @@ final class EmbeddedSettingsUi {
         if (digit >= 2 && digit <= 9) {
             TextView action = text(activity, "—", 10, SECONDARY);
             action.setGravity(Gravity.CENTER);
-            action.setSingleLine(false);
-        action.setMaxLines(2);
+            action.setSingleLine(true);
             action.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -635,9 +651,14 @@ final class EmbeddedSettingsUi {
         if (view == null || keyView == null) return;
         int action = EmbeddedConfigEditor.actionForQwerty(config, String.valueOf(letter));
         int up = config.actionForUp(String.valueOf(letter), false);
-        view.setText(SwipeUiHelper.directionalPreview(
-                previewLabel(config.qwertyLabels[index], action),
-                previewLabel(config.upQwertyLabels[index], up)));
+        view.setText(previewLabel(config.qwertyLabels[index], action));
+        TextView upView = qwertyUpActionViews[index];
+        if (upView != null) {
+            upView.setText(up == Config.ACTION_NONE ? ""
+                    : previewLabel(config.upQwertyLabels[index], up));
+            upView.setTextColor(up == Config.ACTION_DISABLE ? DANGER
+                    : up == Config.ACTION_NONE ? SECONDARY : ACCENT);
+        }
         keyView.setContentDescription(Character.toUpperCase(letter) + " 键，下滑："
                 + Config.actionName(action) + "；上滑：" + Config.actionName(up)
                 + "。点击选择方向后修改，长按设置标签");
@@ -659,9 +680,14 @@ final class EmbeddedSettingsUi {
         if (view == null || keyView == null) return;
         int action = Config.validAction(config.t9Actions[digit]);
         int up = config.actionForUp(String.valueOf(digit), true);
-        view.setText(SwipeUiHelper.directionalPreview(
-                previewLabel(config.t9Labels[digit], action),
-                previewLabel(config.upT9Labels[digit], up)));
+        view.setText(previewLabel(config.t9Labels[digit], action));
+        TextView upView = t9UpActionViews[digit];
+        if (upView != null) {
+            upView.setText(up == Config.ACTION_NONE ? ""
+                    : previewLabel(config.upT9Labels[digit], up));
+            upView.setTextColor(up == Config.ACTION_DISABLE ? DANGER
+                    : up == Config.ACTION_NONE ? SECONDARY : ACCENT);
+        }
         keyView.setContentDescription(digit + " 键，下滑："
                 + Config.actionName(action) + "；上滑：" + Config.actionName(up)
                 + "。点击选择方向后修改，长按设置标签");
