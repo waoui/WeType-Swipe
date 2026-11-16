@@ -222,11 +222,11 @@ final class EmbeddedSettingsUi {
         card.addView(divider());
         LinearLayout tools = horizontal();
         tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView defaults = smallAction("恢复默认下滑 Z/X/C/V", false);
+        TextView defaults = smallAction("应用截图推荐下滑预设", false);
         defaults.setOnClickListener(v -> {
             EmbeddedConfigEditor.restoreDefaults(config);
             refreshQwerty();
-            Toast.makeText(activity, "已恢复默认下滑 Z/X/C/V", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, "已应用截图推荐下滑预设", Toast.LENGTH_SHORT).show();
         });
         tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 48), 1f));
         TextView clear = smallAction("清空 26 键下滑", true);
@@ -451,9 +451,24 @@ final class EmbeddedSettingsUi {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(divider());
 
-        TextView embedded = text(activity, "内置模块设置入口：关于页面连续点击图标 5 次。", 12, SECONDARY);
+        TextView embedded = text(activity, "内置设置入口：可绑定 L 键下滑，或通过关于页图标连续点击 5 次进入。", 12, SECONDARY);
         embedded.setPadding(dp(activity, 18), dp(activity, 12), dp(activity, 18), dp(activity, 14));
         card.addView(embedded);
+        card.addView(divider());
+        EmbeddedBackupUi.attach(activity, card,
+                () -> {
+                    Config current = ConfigSnapshot.copyOf(config);
+                    current.thresholdDp = qwertyThreshold.getProgress() + 6;
+                    current.t9ThresholdDp = t9Threshold.getProgress() + 10;
+                    current.showKeyLabels = showLabels.isChecked();
+                    current.showTriggerHint = showHint.isChecked();
+                    current.vibration = vibration.isChecked();
+                    return current;
+                },
+                imported -> {
+                    if (saver != null) saver.save(ConfigSnapshot.copyOf(imported));
+                    dialog.dismiss();
+                });
         return card;
     }
 
