@@ -30,6 +30,7 @@ final class Config {
     static final String KEY_NEXT_INPUT_METHOD = "next_input_method";
     static final String KEY_PREVIOUS_INPUT_METHOD = "previous_input_method";
     static final String KEY_SHOW_INPUT_METHOD_PICKER = "show_input_method_picker";
+    static final String KEY_OPEN_EMBEDDED_SETTINGS = "open_embedded_settings";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
@@ -85,6 +86,7 @@ final class Config {
     static final int ACTION_NEXT_INPUT_METHOD = 21;
     static final int ACTION_PREVIOUS_INPUT_METHOD = 22;
     static final int ACTION_SHOW_INPUT_METHOD_PICKER = 23;
+    static final int ACTION_OPEN_EMBEDDED_SETTINGS = 24;
 
     static final String[] ACTION_MENU_LABELS = ActionRegistry.menuLabels();
 
@@ -109,6 +111,7 @@ final class Config {
     String nextInputMethod = "";
     String previousInputMethod = "";
     String showInputMethodPicker = "";
+    String openEmbeddedSettings = "";
     String disabledKeys = "";
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
