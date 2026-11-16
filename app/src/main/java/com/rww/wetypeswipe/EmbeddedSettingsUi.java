@@ -164,16 +164,16 @@ final class EmbeddedSettingsUi {
         header.setBackgroundColor(Color.WHITE);
 
         LinearLayout labels = vertical();
-        TextView eyebrow = text(activity, "微信输入法 · 内置模块设置", 12, ACCENT);
+        TextView eyebrow = text(activity, "微信输入法  ·  唯一配置入口", 12, ACCENT);
         eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
         eyebrow.setVisibility(compact ? View.GONE : View.VISIBLE);
         labels.addView(eyebrow);
-        TextView title = text(activity, "滑动快捷键", compact ? 20 : 24, TEXT);
+        TextView title = text(activity, "滑动快捷键设置", compact ? 20 : 24, TEXT);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams titleParams = wrap();
         titleParams.topMargin = dp(activity, 3);
         labels.addView(title, titleParams);
-        TextView version = text(activity, "修改后点击底部保存并应用", 12, SECONDARY);
+        TextView version = text(activity, "26 键 / 九宫格 · 上下滑独立配置", 12, SECONDARY);
         version.setVisibility(compact ? View.GONE : View.VISIBLE);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(activity, 4);
@@ -194,7 +194,7 @@ final class EmbeddedSettingsUi {
     private View buildQwertyCard() {
         LinearLayout card = createCard(
                 "26 键快捷操作",
-                "点击按键选择下滑或上滑动作，长按选择方向后设置标签。",
+                "轻点选择上滑或下滑动作，长按编辑显示标签。",
                 true);
         String[] rows = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
         LinearLayout keyboard = vertical();
@@ -217,39 +217,55 @@ final class EmbeddedSettingsUi {
             keyboard.addView(row);
         }
         card.addView(keyboard);
+        TextView legend = text(activity, "↑ 上方显示上滑功能     ·     ↓ 下方显示下滑功能", 11, SECONDARY);
+        legend.setGravity(Gravity.CENTER);
+        legend.setPadding(dp(activity, 8), 0, dp(activity, 8), dp(activity, 10));
+        card.addView(legend);
         card.addView(divider());
-        LinearLayout tools = horizontal();
-        tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView defaults = smallAction("应用截图推荐下滑预设", false);
+
+        LinearLayout actions = vertical();
+        actions.setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 12));
+        TextView defaults = smallAction("应用推荐下滑预设（不会更改上滑）", false);
+        actions.addView(defaults, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)));
         defaults.setOnClickListener(v -> {
             EmbeddedConfigEditor.restoreDefaults(config);
             refreshQwerty();
-            Toast.makeText(activity, "已应用截图推荐下滑预设", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, "推荐下滑预设已加载，保存后生效", Toast.LENGTH_SHORT).show();
         });
-        tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 48), 1f));
-        TextView clear = smallAction("清空 26 键下滑", true);
-        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 48), 1f);
-        clearParams.leftMargin = dp(activity, 8);
-        tools.addView(clear, clearParams);
-        clear.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
-                .setTitle("清空 26 键下滑映射？")
+
+        LinearLayout clears = horizontal();
+        LinearLayout.LayoutParams clearRowLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44));
+        clearRowLp.topMargin = dp(activity, 8);
+        actions.addView(clears, clearRowLp);
+
+        TextView clearDown = smallAction("清空下滑", true);
+        clears.addView(clearDown, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        clearDown.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
+                .setTitle("清空全部 26 键下滑？")
+                .setMessage("只清除下滑绑定，不改变上滑；保存后生效。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearQwerty(config);
                     refreshQwerty();
                 }).create()));
-        card.addView(tools);
-        TextView clearUp = smallAction("清空 26 键上滑", true);
-        card.addView(clearUp, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44)));
+
+        TextView clearUp = smallAction("清空上滑", true);
+        LinearLayout.LayoutParams upLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f);
+        upLp.leftMargin = dp(activity, 8);
+        clears.addView(clearUp, upLp);
         clearUp.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
-                .setTitle("清空 26 键上滑映射？")
-                .setMessage("只删除上滑动作和文本，下滑配置不受影响。")
+                .setTitle("清空全部 26 键上滑？")
+                .setMessage("只清除上滑绑定，不改变下滑；保存后生效。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearQwertyUp(config);
                     refreshQwerty();
                 }).create()));
+        card.addView(actions);
         return card;
     }
 
@@ -311,13 +327,14 @@ final class EmbeddedSettingsUi {
         }
         card.addView(keyboard);
         card.addView(divider());
-        LinearLayout tools = horizontal();
-        tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView clear = smallAction("清空九宫格下滑", true);
-        tools.addView(clear, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)));
-        clear.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
-                .setTitle("清空九宫格下滑映射？")
+        LinearLayout clears = horizontal();
+        clears.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
+
+        TextView clearDown = smallAction("清空下滑", true);
+        clears.addView(clearDown, new LinearLayout.LayoutParams(0, dp(activity, 46), 1f));
+        clearDown.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
+                .setTitle("清空九宫格下滑？")
+                .setMessage("只清除数字 2–9 的下滑配置，保存后生效。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     for (int digit = 2; digit <= 9; digit++) {
@@ -326,18 +343,21 @@ final class EmbeddedSettingsUi {
                         updateT9(digit);
                     }
                 }).create()));
-        card.addView(tools);
-        TextView clearUp = smallAction("清空九宫格上滑", true);
-        card.addView(clearUp, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44)));
+
+        TextView clearUp = smallAction("清空上滑", true);
+        LinearLayout.LayoutParams upLp = new LinearLayout.LayoutParams(
+                0, dp(activity, 46), 1f);
+        upLp.leftMargin = dp(activity, 8);
+        clears.addView(clearUp, upLp);
         clearUp.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
-                .setTitle("清空九宫格上滑映射？")
-                .setMessage("只删除 2–9 上滑动作和文本，不影响下滑。")
+                .setTitle("清空九宫格上滑？")
+                .setMessage("只清除数字 2–9 的上滑配置，保存后生效。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearT9Up(config);
                     for (int digit = 2; digit <= 9; digit++) updateT9(digit);
                 }).create()));
+        card.addView(clears);
         return card;
     }
 
@@ -476,6 +496,12 @@ final class EmbeddedSettingsUi {
         bar.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 11));
         bar.setBackgroundColor(Color.WHITE);
         bar.setElevation(dp(activity, 10));
+        TextView hint = text(activity, "唯一配置源 · 保存到微信输入法本地", 11, SECONDARY);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hintLp.bottomMargin = dp(activity, 7);
+        bar.addView(hint, hintLp);
         Button save = new Button(activity);
         save.setText("保存并应用配置");
         save.setTextSize(16);
