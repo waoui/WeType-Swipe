@@ -6,112 +6,133 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Clipboard backup for an embedded IME screen, which cannot own SAF Activity results. */
+/** One backup section shared by the Activity-hosted embedded UI and IME-overlay fallback. */
 final class EmbeddedBackupUi {
     interface Provider { Config current(); }
     interface Importer { void importConfig(Config config); }
 
+    private static final int BLUE = Color.rgb(36, 103, 214);
+    private static final int BLUE_SOFT = Color.rgb(232, 240, 254);
+    private static final int MUTED = Color.rgb(101, 109, 122);
+
     private EmbeddedBackupUi() {}
 
     static void attach(Context context, LinearLayout container, Provider provider, Importer importer) {
-        TextView heading = text(context, "配置备份与恢复", 15, Color.rgb(32, 36, 43));
-        heading.setPadding(dp(context, 18), dp(context, 12), dp(context, 18), dp(context, 8));
-        container.addView(heading);
+        final boolean fileSupported = context instanceof Activity;
         TextView note = text(context,
-                context instanceof Activity
-                        ? "所有设置仅保存在微信输入法内。可直接导出/导入 TXT，也可使用剪贴板备份。"
-                        : "当前是输入法悬浮窗口，剪贴板备份可用；需 TXT 文件导入/导出时请进入微信输入法关于页的内置设置。",
-                12, Color.rgb(101, 109, 122));
-        note.setPadding(dp(context, 18), 0, dp(context, 18), dp(context, 10));
+                fileSupported
+                        ? "优先使用 TXT 文件备份（包含当前编辑中尚未保存的修改）；也支持复制配置到剪贴板。"
+                        : "当前由输入法悬浮窗口打开：可使用剪贴板备份与恢复。要管理 TXT 文件，请从微信输入法“关于”页进入内置设置。",
+                12, MUTED);
+        note.setPadding(dp(context, 16), dp(context, 12),
+                dp(context, 16), dp(context, 10));
         container.addView(note);
 
-        LinearLayout row = new LinearLayout(context);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(dp(context, 12), dp(context, 6), dp(context, 12), dp(context, 12));
-        TextView copy = button(context, "复制配置备份");
-        row.addView(copy, new LinearLayout.LayoutParams(0, dp(context, 48), 1f));
+        if (fileSupported) {
+            Activity host = (Activity) context;
+            LinearLayout files = actions(context);
+            TextView exportFile = button(context, "导出 TXT", true);
+            files.addView(exportFile, weighted(context));
+            exportFile.setOnClickListener(view ->
+                    EmbeddedFileTransfer.exportText(host, provider.current()));
+
+            TextView importFile = button(context, "导入 TXT", true);
+            LinearLayout.LayoutParams right = weighted(context);
+            right.leftMargin = dp(context, 8);
+            files.addView(importFile, right);
+            importFile.setOnClickListener(view ->
+                    EmbeddedFileTransfer.importText(host, importer::importConfig));
+            container.addView(files);
+        }
+
+        LinearLayout clipboard = actions(context);
+        TextView copy = button(context, "复制配置", false);
+        clipboard.addView(copy, weighted(context));
         copy.setOnClickListener(view -> {
             try {
-                ClipboardManager clipboard = (ClipboardManager)
+                ClipboardManager manager = (ClipboardManager)
                         context.getSystemService(Context.CLIPBOARD_SERVICE);
-                if (clipboard == null) throw new IllegalArgumentException("剪贴板不可用");
-                clipboard.setPrimaryClip(ClipData.newPlainText("WeType-Swipe 配置备份",
+                if (manager == null) throw new IllegalStateException("剪贴板不可用");
+                manager.setPrimaryClip(ClipData.newPlainText("WeType-Swipe 配置备份",
                         ConfigBackup.exportText(provider.current())));
-                Toast.makeText(context, "配置已复制，可粘贴保存为 UTF-8 TXT",
+                Toast.makeText(context,
+                        "已复制配置，可保存为 UTF-8 TXT 文本", Toast.LENGTH_LONG).show();
+            } catch (Exception error) {
+                Toast.makeText(context, "复制配置失败：" + error.getMessage(),
                         Toast.LENGTH_LONG).show();
-            } catch (Exception e) {
-                Toast.makeText(context, "配置复制失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         });
-        TextView paste = button(context, "从剪贴板导入");
-        LinearLayout.LayoutParams pasteLayout = new LinearLayout.LayoutParams(0, dp(context, 48), 1f);
-        pasteLayout.leftMargin = dp(context, 8);
-        row.addView(paste, pasteLayout);
+
+        TextView paste = button(context, "粘贴导入", false);
+        LinearLayout.LayoutParams pasteParams = weighted(context);
+        pasteParams.leftMargin = dp(context, 8);
+        clipboard.addView(paste, pasteParams);
         paste.setOnClickListener(view -> {
             try {
-                ClipboardManager clipboard = (ClipboardManager)
+                ClipboardManager manager = (ClipboardManager)
                         context.getSystemService(Context.CLIPBOARD_SERVICE);
-                if (clipboard == null || clipboard.getPrimaryClip() == null
-                        || clipboard.getPrimaryClip().getItemCount() < 1) {
-                    throw new IllegalArgumentException("剪贴板没有配置文本");
+                if (manager == null || manager.getPrimaryClip() == null
+                        || manager.getPrimaryClip().getItemCount() == 0) {
+                    throw new IllegalArgumentException("剪贴板没有配置内容");
                 }
-                CharSequence raw = clipboard.getPrimaryClip().getItemAt(0).coerceToText(context);
-                Config candidate = ConfigBackup.importText(raw == null ? "" : raw.toString());
+                CharSequence raw = manager.getPrimaryClip().getItemAt(0).coerceToText(context);
+                Config parsed = ConfigBackup.importText(raw == null ? "" : raw.toString());
                 AlertDialog confirm = new AlertDialog.Builder(context)
-                        .setTitle("确认导入配置？")
-                        .setMessage("备份已通过格式检查。导入会覆盖上下滑动作、标签、文本和手势设置。建议先复制旧配置。")
+                        .setTitle("确认从剪贴板导入？")
+                        .setMessage("备份格式已通过验证。导入会覆盖微信输入法当前的上下滑、标签、文本和手势选项，建议先备份。")
                         .setNegativeButton("取消", null)
                         .setPositiveButton("确认导入", (dialog, which) -> {
                             try {
-                                importer.importConfig(candidate);
-                                Toast.makeText(context, "配置导入请求已提交", Toast.LENGTH_LONG).show();
+                                importer.importConfig(parsed);
+                                Toast.makeText(context, "配置已导入并应用",
+                                        Toast.LENGTH_LONG).show();
                             } catch (Exception error) {
-                                Toast.makeText(context, "导入失败：" + error.getMessage(), Toast.LENGTH_LONG).show();
+                                Toast.makeText(context, "导入失败：" + error.getMessage(),
+                                        Toast.LENGTH_LONG).show();
                             }
                         })
                         .create();
                 ImeDialogCompat.show(context, confirm);
-            } catch (Exception e) {
-                Toast.makeText(context, "配置导入失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+            } catch (Exception error) {
+                Toast.makeText(context, "无法导入配置：" + error.getMessage(),
+                        Toast.LENGTH_LONG).show();
             }
         });
-        container.addView(row, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        if (context instanceof Activity) {
-            Activity activity = (Activity) context;
-            LinearLayout files = new LinearLayout(context);
-            files.setOrientation(LinearLayout.HORIZONTAL);
-            files.setPadding(dp(context, 12), 0, dp(context, 12), dp(context, 12));
-
-            TextView export = button(context, "导出 TXT 文件");
-            files.addView(export, new LinearLayout.LayoutParams(0, dp(context, 48), 1f));
-            export.setOnClickListener(view ->
-                    EmbeddedFileTransfer.exportText(activity, provider.current()));
-
-            TextView importFile = button(context, "导入 TXT 文件");
-            LinearLayout.LayoutParams importParams =
-                    new LinearLayout.LayoutParams(0, dp(context, 48), 1f);
-            importParams.leftMargin = dp(context, 8);
-            files.addView(importFile, importParams);
-            importFile.setOnClickListener(view ->
-                    EmbeddedFileTransfer.importText(activity, importer::importConfig));
-            container.addView(files, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
+        container.addView(clipboard);
     }
 
-    private static TextView button(Context context, String title) {
-        TextView view = text(context, title, 13, Color.rgb(36, 103, 214));
+    private static LinearLayout actions(Context context) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(dp(context, 12), dp(context, 4),
+                dp(context, 12), dp(context, 12));
+        return row;
+    }
+
+    private static LinearLayout.LayoutParams weighted(Context context) {
+        return new LinearLayout.LayoutParams(0, dp(context, 48), 1f);
+    }
+
+    private static TextView button(Context context, String title, boolean primary) {
+        TextView view = text(context, title, 13,
+                primary ? Color.WHITE : BLUE);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
         view.setGravity(Gravity.CENTER);
-        view.setBackgroundColor(Color.rgb(232, 240, 254));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(primary ? BLUE : BLUE_SOFT);
+        bg.setCornerRadius(dp(context, 11));
+        view.setBackground(bg);
         view.setClickable(true);
+        view.setFocusable(true);
+        view.setContentDescription(title);
         return view;
     }
 
