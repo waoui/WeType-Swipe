@@ -558,8 +558,8 @@ public final class MainHook extends XposedModule {
         float keyHeight = Math.max(1f, drawRect.height());
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
         float padding = Math.max(dp(keyboard, 1), keyHeight * 0.045f);
-        float downBaseline = drawRect.bottom - padding - metrics.descent;
-        float upBaseline = drawRect.top + padding - metrics.ascent;
+        float downBaseline = KeyLabelPlacement.downBaseline(drawRect.bottom, padding, metrics.descent);
+        float upBaseline = KeyLabelPlacement.upBaseline(drawRect.top, padding, metrics.ascent);
         Canvas canvas = (Canvas) canvasValue;
         if (!upLabel.isEmpty()) {
             drawKeyFunctionText(canvas, upLabel, drawRect.exactCenterX(), upBaseline);
@@ -749,8 +749,8 @@ public final class MainHook extends XposedModule {
         float thirdBaseline = rowHeight * 3f
                 - Math.max(minBottomGap, rowHeight * 0.20f);
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
-        float firstUpBaseline = Math.max(dp(keyboard, 1), rowHeight * 0.045f)
-                - metrics.ascent;
+        float firstUpBaseline = KeyLabelPlacement.upBaseline(0f,
+                Math.max(dp(keyboard, 1), rowHeight * 0.045f), metrics.ascent);
         drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline, firstUpBaseline);
         drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline, rowHeight + firstUpBaseline);
         drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline, rowHeight * 2f + firstUpBaseline);
@@ -938,8 +938,8 @@ public final class MainHook extends XposedModule {
         float rowHeight = heights.get(heights.size() / 2);
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
         float padding = Math.max(dp(keyboard, 1), rowHeight * 0.045f);
-        float downBaseline = rowBottom - padding - metrics.descent;
-        float upBaseline = rowBottom - rowHeight + padding - metrics.ascent;
+        float downBaseline = KeyLabelPlacement.downBaseline(rowBottom, padding, metrics.descent);
+        float upBaseline = KeyLabelPlacement.upBaseline(rowBottom - rowHeight, padding, metrics.ascent);
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
             float[] rect = raw.get(key);
