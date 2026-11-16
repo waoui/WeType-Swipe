@@ -25,18 +25,17 @@ public final class ConfigSyncReceiver extends BroadcastReceiver {
             int storedRevision = prefs.getInt(Config.KEY_REVISION, -1);
             long deadline = prefs.getLong(KEY_MANUAL_SYNC_DEADLINE, 0L);
             boolean manualPull = deadline > 0 && System.currentTimeMillis() <= deadline;
-            if (incoming.revision < storedRevision && !manualPull) {
+            int revision = ConfigRevisionPolicy.revisionForSnapshot(
+                    incoming.revision, storedRevision, manualPull);
+            if (revision < 0) {
                 prefs.edit().putBoolean(KEY_VERSION_CONFLICT, true).apply();
-                Log.w(TAG, "Ignored older embedded snapshot; use manual pull to reconcile: incoming="
-                        + incoming.revision + ", stored=" + storedRevision);
+                Log.w(TAG, "Ignored unsupported/older embedded snapshot: incoming="
+                        + incoming.revision + ", stored=" + storedRevision
+                        + ", manual=" + manualPull);
                 return;
             }
-            boolean advancedTargetRevision = manualPull && incoming.revision < storedRevision;
-            if (advancedTargetRevision) {
-                // The user explicitly chose the active input-method configuration as
-                // authoritative. Keep revision monotonic for the next save in both apps.
-                incoming.revision = storedRevision + 1;
-            }
+            boolean advancedTargetRevision = revision != incoming.revision;
+            incoming.revision = revision;
 
             SharedPreferences.Editor editor = prefs.edit();
             ConfigCodec.writeToPreferences(editor, incoming);
