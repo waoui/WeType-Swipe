@@ -144,6 +144,7 @@ final class EmbeddedSettingsUi {
         LinearLayout optionsPage = vertical();
         optionsPage.addView(buildGestureCard());
         optionsPage.addView(buildGeneralCard());
+        optionsPage.addView(buildBackupCard());
         content.addView(qwertyPage);
         content.addView(t9Page);
         content.addView(optionsPage, new LinearLayout.LayoutParams(
@@ -164,7 +165,7 @@ final class EmbeddedSettingsUi {
         header.setBackgroundColor(Color.WHITE);
 
         LinearLayout labels = vertical();
-        TextView eyebrow = text(activity, "微信输入法 · 内置模块设置", 12, ACCENT);
+        TextView eyebrow = text(activity, "微信输入法 · 唯一配置入口", 12, ACCENT);
         eyebrow.setTypeface(Typeface.DEFAULT_BOLD);
         eyebrow.setVisibility(compact ? View.GONE : View.VISIBLE);
         labels.addView(eyebrow);
@@ -173,7 +174,7 @@ final class EmbeddedSettingsUi {
         LinearLayout.LayoutParams titleParams = wrap();
         titleParams.topMargin = dp(activity, 3);
         labels.addView(title, titleParams);
-        TextView version = text(activity, "修改后点击底部保存并应用", 12, SECONDARY);
+        TextView version = text(activity, "上下滑独立设置 · 底部保存生效", 12, SECONDARY);
         version.setVisibility(compact ? View.GONE : View.VISIBLE);
         LinearLayout.LayoutParams versionParams = wrap();
         versionParams.topMargin = dp(activity, 4);
@@ -194,7 +195,7 @@ final class EmbeddedSettingsUi {
     private View buildQwertyCard() {
         LinearLayout card = createCard(
                 "26 键快捷操作",
-                "点击按键选择下滑或上滑动作，长按选择方向后设置标签。",
+                "点击键位选择动作，长按设置自定义标签。",
                 true);
         String[] rows = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
         LinearLayout keyboard = vertical();
@@ -216,16 +217,23 @@ final class EmbeddedSettingsUi {
             if (rowIndex == 2) spacer(row, 1.35f);
             keyboard.addView(row);
         }
+        card.addView(buildDirectionLegend());
         card.addView(keyboard);
         card.addView(divider());
         LinearLayout tools = horizontal();
         tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView defaults = smallAction("应用截图推荐下滑预设", false);
-        defaults.setOnClickListener(v -> {
-            EmbeddedConfigEditor.restoreDefaults(config);
-            refreshQwerty();
-            Toast.makeText(activity, "已应用截图推荐下滑预设", Toast.LENGTH_SHORT).show();
-        });
+        TextView defaults = smallAction("应用推荐键位", false);
+        defaults.setOnClickListener(v -> ImeDialogCompat.show(activity,
+                new AlertDialog.Builder(activity)
+                        .setTitle("应用推荐的 26 键下滑配置？")
+                        .setMessage("将重新设置 26 键下滑映射（包括 L 键下滑打开设置）；原有上滑、九宫格和手势选项不变。点击底部保存后才正式应用。")
+                        .setNegativeButton("取消", null)
+                        .setPositiveButton("应用预设", (d, w) -> {
+                            EmbeddedConfigEditor.restoreDefaults(config);
+                            refreshQwerty();
+                            Toast.makeText(activity, "已应用推荐键位，点击底部保存生效",
+                                    Toast.LENGTH_LONG).show();
+                        }).create()));
         tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 48), 1f));
         TextView clear = smallAction("清空 26 键下滑", true);
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 48), 1f);
@@ -293,7 +301,7 @@ final class EmbeddedSettingsUi {
     private View buildT9Card() {
         LinearLayout card = createCard(
                 "九宫格快捷操作",
-                "2–9 支持下滑和上滑分别绑定，点击设置动作，长按设置标签。",
+                "2–9 支持上滑与下滑独立动作，1 键不绑定。",
                 true);
         LinearLayout keyboard = vertical();
         keyboard.setPadding(dp(activity, 12), dp(activity, 9), dp(activity, 12), dp(activity, 9));
@@ -309,6 +317,7 @@ final class EmbeddedSettingsUi {
             }
             keyboard.addView(row);
         }
+        card.addView(buildDirectionLegend());
         card.addView(keyboard);
         card.addView(divider());
         LinearLayout tools = horizontal();
@@ -391,6 +400,22 @@ final class EmbeddedSettingsUi {
         return key;
     }
 
+    private View buildDirectionLegend() {
+        TextView legend = text(activity,
+                "↑ 上滑功能在按键上方    ·    ↓ 下滑功能在按键下方",
+                12, ACCENT);
+        legend.setGravity(Gravity.CENTER);
+        legend.setPadding(dp(activity, 10), dp(activity, 11),
+                dp(activity, 10), dp(activity, 11));
+        legend.setBackground(rounded(ACCENT_SOFT, dp(activity, 10), 0, 0));
+        LinearLayout container = vertical();
+        container.setPadding(dp(activity, 12), dp(activity, 8),
+                dp(activity, 12), dp(activity, 3));
+        container.addView(legend, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return container;
+    }
+
     private View buildGestureCard() {
         LinearLayout card = createCard("手势设置", "距离越大越不容易误触。", true);
         qwertyThreshold = slider(card, "26 键触发距离", 6, 40, config.thresholdDp, true);
@@ -452,9 +477,15 @@ final class EmbeddedSettingsUi {
         TextView embedded = text(activity, "内置设置入口：可绑定 L 键下滑，或通过关于页图标连续点击 5 次进入。", 12, SECONDARY);
         embedded.setPadding(dp(activity, 18), dp(activity, 12), dp(activity, 18), dp(activity, 14));
         card.addView(embedded);
-        card.addView(divider());
+        return card;
+    }
+
+    private View buildBackupCard() {
+        LinearLayout card = createCard("配置备份与恢复",
+                "备份包括上下滑映射、标签、自定义文本及手势参数。", true);
         EmbeddedBackupUi.attach(activity, card,
                 () -> {
+                    // Include edits visible in the current UI, even before tapping Save.
                     Config current = ConfigSnapshot.copyOf(config);
                     current.thresholdDp = qwertyThreshold.getProgress() + 6;
                     current.t9ThresholdDp = t9Threshold.getProgress() + 10;
