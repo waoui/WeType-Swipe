@@ -73,6 +73,9 @@ final class ConfigBackup {
             }
         }
 
+        validateBoundedInt(p, Config.KEY_THRESHOLD, 6, 40);
+        validateBoundedInt(p, Config.KEY_T9_THRESHOLD, 10, 48);
+        validateBoundedInt(p, Config.KEY_REVISION, 0, Integer.MAX_VALUE);
         Config config = ConfigCodec.read(new ConfigCodec.Reader() {
             @Override public String getString(String key, String fallback) {
                 return p.getProperty(key, fallback);
@@ -145,6 +148,17 @@ final class ConfigBackup {
             if (c.upT9Actions[digit] == Config.ACTION_INSERT_TEXT && c.upT9Texts[digit].isEmpty()) {
                 throw new IllegalArgumentException("九宫格上滑自定义输入缺少文字");
             }
+        }
+    }
+
+    private static void validateBoundedInt(Properties p, String key, int min, int max) {
+        final int value;
+        try { value = Integer.parseInt(p.getProperty(key)); }
+        catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("无效整数：" + key, ex);
+        }
+        if (value < min || value > max) {
+            throw new IllegalArgumentException("参数超出允许范围：" + key);
         }
     }
 
