@@ -2309,6 +2309,7 @@ public final class MainHook extends XposedModule {
             key = null;
             displayKey = null;
             action = Config.ACTION_NONE;
+            upAction = Config.ACTION_NONE;
             t9 = false;
             triggered = false;
         }
