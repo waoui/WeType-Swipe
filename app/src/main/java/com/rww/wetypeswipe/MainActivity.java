@@ -72,11 +72,15 @@ public final class MainActivity extends Activity {
     private String loadedConfigFingerprint = "";
     private boolean settingsForeground;
     private boolean syncConflictDialogOpen;
+    private boolean revisionConflictNotified;
     private final SharedPreferences.OnSharedPreferenceChangeListener embeddedSyncListener =
             (shared, key) -> {
                 if (ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING.equals(key)
                         && shared.getBoolean(ConfigSyncReceiver.KEY_EXTERNAL_SYNC_PENDING, false)) {
                     runOnUiThread(() -> refreshAfterEmbeddedSave());
+                } else if (ConfigSyncReceiver.KEY_VERSION_CONFLICT.equals(key)
+                        && shared.getBoolean(ConfigSyncReceiver.KEY_VERSION_CONFLICT, false)) {
+                    runOnUiThread(() -> notifyRevisionConflict());
                 }
             };
 
@@ -123,8 +127,10 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         settingsForeground = true;
+        revisionConflictNotified = false;
         if (hideIcon != null) hideIcon.setChecked(isLauncherIconHidden());
         refreshAfterEmbeddedSave();
+        notifyRevisionConflict();
         try {
             // Recovers from a missed/delayed embedded -> standalone broadcast.
             ConfigBridge.requestLatestFromTarget(this);
@@ -169,6 +175,15 @@ public final class MainActivity extends Activity {
             return;
         }
         applyReceivedConfig();
+    }
+
+    private void notifyRevisionConflict() {
+        if (!settingsForeground || revisionConflictNotified
+                || !prefs.getBoolean(ConfigSyncReceiver.KEY_VERSION_CONFLICT, false)) return;
+        revisionConflictNotified = true;
+        Toast.makeText(this,
+                "两边配置版本不一致。请在备份与恢复中选择“从微信输入法读取最新配置”。",
+                Toast.LENGTH_LONG).show();
     }
 
     private boolean isStandaloneEditorDirty() {
@@ -638,17 +653,29 @@ public final class MainActivity extends Activity {
         syncParams.rightMargin = dp(12);
         syncParams.bottomMargin = dp(12);
         card.addView(syncButton, syncParams);
-        syncButton.setOnClickListener(v -> {
-            try {
-                ConfigBridge.requestLatestFromTarget(this);
-                Toast.makeText(this,
-                        "已向微信输入法请求配置；如输入法未运行，请先打开键盘再返回",
-                        Toast.LENGTH_LONG).show();
-            } catch (RuntimeException ex) {
-                Log.e("WeTypeSwipeSync", "Manual config refresh request failed", ex);
-                Toast.makeText(this, "同步请求失败：" + ex.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        });
+        syncButton.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("以微信输入法配置为准？")
+                .setMessage("将从正在运行的微信输入法读取实际生效的配置，并覆盖模块 App 保存的配置。请先导出当前配置 TXT；如页面有未保存修改，请先处理。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("确认从输入法读取", (dialog, which) -> {
+                    long deadline = System.currentTimeMillis() + 15000L;
+                    if (!prefs.edit().putLong(ConfigSyncReceiver.KEY_MANUAL_SYNC_DEADLINE,
+                            deadline).commit()) {
+                        Toast.makeText(this, "无法准备同步请求", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    try {
+                        ConfigBridge.requestLatestFromTarget(this);
+                        Toast.makeText(this,
+                                "已请求输入法当前配置；如输入法未运行，请先打开键盘再操作",
+                                Toast.LENGTH_LONG).show();
+                    } catch (RuntimeException ex) {
+                        prefs.edit().remove(ConfigSyncReceiver.KEY_MANUAL_SYNC_DEADLINE).apply();
+                        Log.e("WeTypeSwipeSync", "Manual config refresh request failed", ex);
+                        Toast.makeText(this, "同步请求失败：" + ex.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show());
         return card;
     }
 
@@ -697,6 +724,8 @@ public final class MainActivity extends Activity {
         imported.rebuildActionMap();
         SharedPreferences.Editor editor = prefs.edit();
         ConfigCodec.writeToPreferences(editor, imported);
+        editor.remove(ConfigSyncReceiver.KEY_VERSION_CONFLICT)
+                .remove(ConfigSyncReceiver.KEY_MANUAL_SYNC_DEADLINE);
         if (!editor.commit()) {
             Toast.makeText(this, "导入失败：无法保存配置", Toast.LENGTH_LONG).show();
             return;
@@ -1143,6 +1172,8 @@ public final class MainActivity extends Activity {
         ConfigCodec.writeToPreferences(editor, config);
         editor.remove("text_start")
                 .remove("text_end")
+                .remove(ConfigSyncReceiver.KEY_VERSION_CONFLICT)
+                .remove(ConfigSyncReceiver.KEY_MANUAL_SYNC_DEADLINE)
                 .putBoolean(Config.KEY_HIDE_ICON, shouldHideIcon);
 
         if (!editor.commit()) {
