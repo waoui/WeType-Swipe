@@ -233,25 +233,25 @@ final class EmbeddedSettingsUi {
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 48), 1f);
         clearParams.leftMargin = dp(activity, 8);
         tools.addView(clear, clearParams);
-        clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
+        clear.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
                 .setTitle("清空 26 键下滑映射？")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearQwerty(config);
                     refreshQwerty();
-                }).show());
+                }).create()));
         card.addView(tools);
         TextView clearUp = smallAction("清空 26 键上滑", true);
         card.addView(clearUp, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44)));
-        clearUp.setOnClickListener(v -> new AlertDialog.Builder(activity)
+        clearUp.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
                 .setTitle("清空 26 键上滑映射？")
                 .setMessage("只删除上滑动作和文本，下滑配置不受影响。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearQwertyUp(config);
                     refreshQwerty();
-                }).show());
+                }).create()));
         return card;
     }
 
@@ -318,7 +318,7 @@ final class EmbeddedSettingsUi {
         TextView clear = smallAction("清空九宫格下滑", true);
         tools.addView(clear, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)));
-        clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
+        clear.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
                 .setTitle("清空九宫格下滑映射？")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
@@ -327,19 +327,19 @@ final class EmbeddedSettingsUi {
                         config.t9Texts[digit] = "";
                         updateT9(digit);
                     }
-                }).show());
+                }).create()));
         card.addView(tools);
         TextView clearUp = smallAction("清空九宫格上滑", true);
         card.addView(clearUp, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 44)));
-        clearUp.setOnClickListener(v -> new AlertDialog.Builder(activity)
+        clearUp.setOnClickListener(v -> ImeDialogCompat.show(activity, new AlertDialog.Builder(activity)
                 .setTitle("清空九宫格上滑映射？")
                 .setMessage("只删除 2–9 上滑动作和文本，不影响下滑。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearT9Up(config);
                     for (int digit = 2; digit <= 9; digit++) updateT9(digit);
-                }).show());
+                }).create()));
         return card;
     }
 
@@ -536,7 +536,7 @@ final class EmbeddedSettingsUi {
                         refreshQwerty();
                     }
                 }));
-        picker.show();
+        ImeDialogCompat.show(activity, picker);
     }
 
     private void showT9ActionDialog(int digit) {
@@ -574,7 +574,7 @@ final class EmbeddedSettingsUi {
                         updateT9(digit);
                     }
                 }));
-        picker.show();
+        ImeDialogCompat.show(activity, picker);
     }
 
     private interface TextChanged { void apply(String value); }
@@ -608,7 +608,7 @@ final class EmbeddedSettingsUi {
             changed.apply(value);
             edit.dismiss();
         }));
-        edit.show();
+        ImeDialogCompat.show(activity, edit);
         input.requestFocus();
         input.setSelection(input.length());
     }
@@ -668,7 +668,7 @@ final class EmbeddedSettingsUi {
                     else if (position == 2) changed.apply(Config.LABEL_HIDDEN);
                     else showCustomLabelInput(title, current, changed);
                 }));
-        picker.show();
+        ImeDialogCompat.show(activity, picker);
     }
 
     private void showCustomLabelInput(String title, String currentValue, LabelChanged changed) {
@@ -692,7 +692,7 @@ final class EmbeddedSettingsUi {
             changed.apply(Config.normalizeLabelValue(input.getText().toString()));
             edit.dismiss();
         }));
-        edit.show();
+        ImeDialogCompat.show(activity, edit);
     }
 
     private void refreshQwerty() {
