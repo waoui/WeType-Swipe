@@ -166,13 +166,13 @@ jobs:
             gh release upload "$TAG" "${files[@]}" --clobber
             gh release edit "$TAG" \
               --target "$RELEASE_COMMIT" \
-              --title "微信输入法下滑快捷键 v${VERSION}" \
+              --title "微信输入法滑动快捷键 v${VERSION}" \
               --notes-file "$RELEASE_NOTES" \
               --latest
           else
             gh release create "$TAG" "${files[@]}" \
               --target "$RELEASE_COMMIT" \
-              --title "微信输入法下滑快捷键 v${VERSION}" \
+              --title "微信输入法滑动快捷键 v${VERSION}" \
               --notes-file "$RELEASE_NOTES" \
               --latest
           fi

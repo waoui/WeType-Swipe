@@ -51,6 +51,13 @@ public final class MainHook extends XposedModule {
     private static final String TARGET = "com.tencent.wetype";
     private static final int PARAGRAPH_CONTEXT_CHARS = 65_536;
     private static final int NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT = 128;
+    private static final String EXTRA_OPEN_EMBEDDED_SETTINGS =
+            "com.rww.wetypeswipe.extra.OPEN_EMBEDDED_SETTINGS";
+    private static final long EMBEDDED_SETTINGS_LAUNCH_TIMEOUT_MS = 15000L;
+    // This state is local to the WeType process; the swipe request is carried through the
+    // WeType launcher Activity Intent, not through the separately installed module app.
+    private volatile boolean embeddedSettingsLaunchPending;
+    private volatile long embeddedSettingsLaunchDeadlineMs;
 
     private final GestureTracker tracker = new GestureTracker();
     private final Reflector reflector = new Reflector();
@@ -144,6 +151,22 @@ public final class MainHook extends XposedModule {
 
         hookAfter(InputMethodService.class.getDeclaredMethod("onCreate"),
                 chain -> captureIme(chain.getThisObject()));
+
+        // The internal settings already work when hosted by an actual WeType Activity.
+        // Watch the native Activity lifecycle so a swipe can open that exact UI even when
+        // the IME's private window refuses TYPE_INPUT_METHOD_DIALOG child windows.
+        hookAfter(Activity.class.getDeclaredMethod("onResume"),
+                chain -> onTargetActivityResumed(chain.getThisObject()));
+        hookAfter(Activity.class.getDeclaredMethod("onNewIntent", android.content.Intent.class),
+                chain -> onTargetActivityNewIntent(chain.getThisObject(),
+                        (android.content.Intent) chain.getArg(0)));
+        hookAfter(Activity.class.getDeclaredMethod("onWindowFocusChanged", boolean.class),
+                chain -> {
+                    if (Boolean.TRUE.equals(chain.getArg(0))
+                            && chain.getThisObject() instanceof Activity) {
+                        scheduleEmbeddedSettingsOnActivity((Activity) chain.getThisObject());
+                    }
+                });
         hookAfter(InputMethodService.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
                 chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
         hookBefore(InputMethodService.class.getDeclaredMethod("onStartInput", EditorInfo.class, boolean.class),
@@ -292,6 +315,77 @@ public final class MainHook extends XposedModule {
 
     private synchronized void applyEmbeddedConfig(Context context, Config config) {
         configBridge.applyEmbedded(context, config);
+    }
+
+    private void onTargetActivityResumed(Object object) {
+        if (!(object instanceof Activity)) return;
+        Activity activity = (Activity) object;
+        if (!TARGET.equals(activity.getPackageName())) return;
+        consumeEmbeddedSettingsRequest(activity, activity.getIntent());
+        scheduleEmbeddedSettingsOnActivity(activity);
+    }
+
+    private void onTargetActivityNewIntent(Object object, android.content.Intent intent) {
+        if (!(object instanceof Activity) || intent == null) return;
+        Activity activity = (Activity) object;
+        if (!TARGET.equals(activity.getPackageName())) return;
+        if (consumeEmbeddedSettingsRequest(activity, intent)) {
+            activity.setIntent(intent);
+            scheduleEmbeddedSettingsOnActivity(activity);
+        }
+    }
+
+    private boolean consumeEmbeddedSettingsRequest(Activity activity, android.content.Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(EXTRA_OPEN_EMBEDDED_SETTINGS, false)) {
+            return false;
+        }
+        // Clear the one-shot trigger before the Activity changes configuration or resumes.
+        intent.removeExtra(EXTRA_OPEN_EMBEDDED_SETTINGS);
+        embeddedSettingsLaunchDeadlineMs =
+                SystemClock.uptimeMillis() + EMBEDDED_SETTINGS_LAUNCH_TIMEOUT_MS;
+        embeddedSettingsLaunchPending = true;
+        logInfo("embedded settings request received in WeType activity "
+                + activity.getClass().getName());
+        return true;
+    }
+
+    private void scheduleEmbeddedSettingsOnActivity(Activity activity) {
+        if (!embeddedSettingsLaunchPending) return;
+        if (SystemClock.uptimeMillis() >= embeddedSettingsLaunchDeadlineMs) {
+            embeddedSettingsLaunchPending = false;
+            logInfo("embedded settings launch request expired");
+            return;
+        }
+        View decor = activity.getWindow() == null ? null : activity.getWindow().getDecorView();
+        if (decor == null) return;
+
+        // Let native splash/redirect activities finish first. The next resumed WeType
+        // Activity will still see pending=true and show the dialog on a stable window.
+        decor.postDelayed(() -> {
+            if (!embeddedSettingsLaunchPending) return;
+            if (SystemClock.uptimeMillis() >= embeddedSettingsLaunchDeadlineMs) {
+                embeddedSettingsLaunchPending = false;
+                logInfo("embedded settings launch request timed out before usable Activity");
+                android.widget.Toast.makeText(activity,
+                        "内置模块设置启动超时，请从微信输入法关于页进入",
+                        android.widget.Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (activity.isFinishing() || activity.isDestroyed()
+                    || !activity.hasWindowFocus()) return;
+            try {
+                ensureConfigSync(activity);
+                EmbeddedSettingsUi.show(activity,
+                        () -> ConfigSnapshot.copyOf(configBridge.current()),
+                        config -> applyEmbeddedConfig(activity, config));
+                embeddedSettingsLaunchPending = false;
+                logInfo("embedded settings opened inside WeType Activity: "
+                        + activity.getClass().getName());
+            } catch (Throwable throwable) {
+                // Keep pending so a subsequent real Activity may satisfy the request.
+                logError("embedded settings Activity dialog failed", throwable);
+            }
+        }, 350L);
     }
 
     private void captureIme(Object object) {
@@ -530,29 +624,43 @@ public final class MainHook extends XposedModule {
             nativeSingleKeyLabelCache.remove(model);
             return;
         }
-        String identity = (visibleKey.t9 ? "t9:" : "qwerty:") + visibleKey.key + '\u0000';
+        String identity = (visibleKey.t9 ? "t9:" : "qwerty:") + visibleKey.key + '\u0000' + config.revision + '\u0000';
         String cached = nativeSingleKeyLabelCache.get(model);
-        String label;
+        String labelPair;
         if (cached == null || !cached.startsWith(identity)) {
-            int action = config.actionFor(visibleKey.key, visibleKey.t9);
-            label = action == Config.ACTION_NONE || action == Config.ACTION_DISABLE
-                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, action);
+            int downAction = config.actionFor(visibleKey.key, visibleKey.t9);
+            int upAction = config.actionForUp(visibleKey.key, visibleKey.t9);
+            String downLabel = downAction == Config.ACTION_NONE || downAction == Config.ACTION_DISABLE
+                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, downAction);
+            String upLabel = upAction == Config.ACTION_NONE || upAction == Config.ACTION_DISABLE
+                    ? "" : config.labelFor(visibleKey.key, visibleKey.t9, upAction, true);
+            labelPair = downLabel + '\u0001' + upLabel;
             if (nativeSingleKeyLabelCache.size() >= NATIVE_SINGLE_KEY_LABEL_CACHE_LIMIT) {
                 nativeSingleKeyLabelCache.clear();
             }
-            nativeSingleKeyLabelCache.put(model, identity + label);
+            nativeSingleKeyLabelCache.put(model, identity + labelPair);
         } else {
-            label = cached.substring(identity.length());
+            labelPair = cached.substring(identity.length());
         }
-        if (label.isEmpty()) return;
+        int separator = labelPair.indexOf('\u0001');
+        if (separator < 0) return;
+        String downLabel = labelPair.substring(0, separator);
+        String upLabel = labelPair.substring(separator + 1);
+        if (downLabel.isEmpty() && upLabel.isEmpty()) return;
 
         ensureNativeSingleKeyPaint(keyboard, drawRect);
         float keyHeight = Math.max(1f, drawRect.height());
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
-        float visibleBottomPadding = Math.max(dp(keyboard, 1), keyHeight * 0.045f);
-        float baseline = drawRect.bottom - visibleBottomPadding - metrics.descent;
-        drawKeyFunctionText((Canvas) canvasValue, label,
-                drawRect.exactCenterX(), baseline);
+        float padding = Math.max(dp(keyboard, 1), keyHeight * 0.045f);
+        float downBaseline = KeyLabelPlacement.downBaseline(drawRect.bottom, padding, metrics.descent);
+        float upBaseline = KeyLabelPlacement.upBaseline(drawRect.top, padding, metrics.ascent);
+        Canvas canvas = (Canvas) canvasValue;
+        if (!upLabel.isEmpty()) {
+            drawKeyFunctionText(canvas, upLabel, drawRect.exactCenterX(), upBaseline);
+        }
+        if (!downLabel.isEmpty()) {
+            drawKeyFunctionText(canvas, downLabel, drawRect.exactCenterX(), downBaseline);
+        }
     }
 
     private View nativeSingleKeyParent(Object model) {
@@ -734,23 +842,27 @@ public final class MainHook extends XposedModule {
                 - Math.max(minBottomGap, rowHeight * 0.19f);
         float thirdBaseline = rowHeight * 3f
                 - Math.max(minBottomGap, rowHeight * 0.20f);
-        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline);
-        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline);
-        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline);
+        Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
+        float firstUpBaseline = KeyLabelPlacement.upBaseline(0f,
+                Math.max(dp(keyboard, 1), rowHeight * 0.045f), metrics.ascent);
+        drawQwertyRow(canvas, config, "qwertyuiop", firstBaseline, firstUpBaseline);
+        drawQwertyRow(canvas, config, "asdfghjkl", secondBaseline, rowHeight + firstUpBaseline);
+        drawQwertyRow(canvas, config, "zxcvbnm", thirdBaseline, rowHeight * 2f + firstUpBaseline);
     }
 
-    private void drawQwertyRow(Canvas canvas, Config config, String keys, float baseline) {
+    private void drawQwertyRow(Canvas canvas, Config config, String keys,
+                               float downBaseline, float upBaseline) {
         Map<String, List<Float>> centers = keyboardLabelCenters;
         if (centers == null || centers.isEmpty()) return;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
-            int action = config.actionFor(key, false);
-            if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
+            if (config.actionFor(key, false) == Config.ACTION_NONE
+                    && config.actionForUp(key, false) == Config.ACTION_NONE) continue;
             List<Float> positions = centers.get(key);
             if (positions == null) continue;
             for (Float x : positions) {
-                if (x != null) drawKeyFunctionText(canvas,
-                        config.labelFor(key, false, action), x, baseline);
+                if (x != null) drawDirectionalKeyLabels(canvas, config, key,
+                        false, x, downBaseline, upBaseline);
             }
         }
     }
@@ -919,15 +1031,16 @@ public final class MainHook extends XposedModule {
         float rowBottom = bottoms.get(bottoms.size() / 2);
         float rowHeight = heights.get(heights.size() / 2);
         Paint.FontMetrics metrics = keyboardLabelPaint.getFontMetrics();
-        float visibleBottomPadding = Math.max(dp(keyboard, 1), rowHeight * 0.045f);
-        float baseline = rowBottom - visibleBottomPadding - metrics.descent;
+        float padding = Math.max(dp(keyboard, 1), rowHeight * 0.045f);
+        float downBaseline = KeyLabelPlacement.downBaseline(rowBottom, padding, metrics.descent);
+        float upBaseline = KeyLabelPlacement.upBaseline(rowBottom - rowHeight, padding, metrics.ascent);
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
             float[] rect = raw.get(key);
             if (rect == null || rect.length < 4) continue;
             float centerX = (rect[0] + rect[2]) * 0.5f;
             float width = rect[2] - rect[0];
-            output.put(key, new float[]{centerX, baseline, width});
+            output.put(key, new float[]{centerX, downBaseline, width, upBaseline});
         }
     }
 
@@ -937,11 +1050,23 @@ public final class MainHook extends XposedModule {
         if (geometry == null || geometry.isEmpty()) return;
         for (int index = 0; index < keys.length(); index++) {
             String key = String.valueOf(keys.charAt(index));
-            int action = config.actionFor(key, t9);
-            if (action == Config.ACTION_NONE || action == Config.ACTION_DISABLE) continue;
             float[] item = geometry.get(key);
-            if (item == null || item.length < 2) continue;
-            drawKeyFunctionText(canvas, config.labelFor(key, t9, action), item[0], item[1]);
+            if (item == null || item.length < 4) continue;
+            drawDirectionalKeyLabels(canvas, config, key, t9, item[0], item[1], item[3]);
+        }
+    }
+
+    private void drawDirectionalKeyLabels(Canvas canvas, Config config, String key, boolean t9,
+                                          float centerX, float downBaseline, float upBaseline) {
+        int upAction = config.actionForUp(key, t9);
+        if (upAction != Config.ACTION_NONE && upAction != Config.ACTION_DISABLE) {
+            drawKeyFunctionText(canvas, config.labelFor(key, t9, upAction, true),
+                    centerX, upBaseline);
+        }
+        int downAction = config.actionFor(key, t9);
+        if (downAction != Config.ACTION_NONE && downAction != Config.ACTION_DISABLE) {
+            drawKeyFunctionText(canvas, config.labelFor(key, t9, downAction),
+                    centerX, downBaseline);
         }
     }
 
@@ -1310,12 +1435,13 @@ public final class MainHook extends XposedModule {
 
 
             int requestedAction = keyInfo == null
-                    ? Config.ACTION_NONE
-                    : config.actionFor(keyInfo.key, keyInfo.t9);
+                    ? Config.ACTION_NONE : config.actionFor(keyInfo.key, keyInfo.t9);
+            int requestedUpAction = keyInfo == null
+                    ? Config.ACTION_NONE : config.actionForUp(keyInfo.key, keyInfo.t9);
             float thresholdPx = dp(keyboard,
                     keyInfo != null && keyInfo.t9 ? config.t9ThresholdDp : config.thresholdDp);
-            tracker.setBinding(keyboard, keyInfo, requestedAction, thresholdPx);
-            if (requestedAction == Config.ACTION_NONE) {
+            tracker.setBinding(keyboard, keyInfo, requestedAction, requestedUpAction, thresholdPx);
+            if (requestedAction == Config.ACTION_NONE && requestedUpAction == Config.ACTION_NONE) {
                 tracker.clear(keyboard);
             }
             keyboard.post(() -> hideKeyboardHint(0L));
@@ -1330,26 +1456,34 @@ public final class MainHook extends XposedModule {
         }
 
         if ((maskedAction == MotionEvent.ACTION_MOVE || maskedAction == MotionEvent.ACTION_UP)
-                && tracker.action != Config.ACTION_NONE) {
+                && (tracker.action != Config.ACTION_NONE || tracker.upAction != Config.ACTION_NONE)) {
             float deltaX = event.getX() - tracker.downX;
             float deltaY = event.getY() - tracker.downY;
-            float horizontalLimit = tracker.t9
-                    ? Math.max(tracker.thresholdPx * 0.9f, deltaY * 0.75f)
-                    : Math.max(tracker.thresholdPx * 2.5f, deltaY * 1.2f);
+            float distance = Math.abs(deltaY);
+            boolean upward = deltaY < 0f;
+            int directionAction = upward ? tracker.upAction : tracker.action;
+            boolean horizontallyValid = GestureDirection.withinHorizontalLimit(
+                    deltaX, distance, tracker.thresholdPx, tracker.t9);
+
             if (maskedAction == MotionEvent.ACTION_MOVE) {
-                if (deltaY >= tracker.thresholdPx * 0.30f
-                        && deltaY < tracker.thresholdPx
-                        && Math.abs(deltaX) <= horizontalLimit) {
+                if (distance >= tracker.thresholdPx * 0.30f
+                        && distance < tracker.thresholdPx
+                        && horizontallyValid && directionAction != Config.ACTION_NONE) {
                     final String hintLabel = tracker.displayKey;
-                    final int hintAction = tracker.action;
-                    keyboard.post(() -> showKeyboardHint(keyboard, hintLabel, hintAction, false));
-                } else if (deltaY < tracker.thresholdPx) {
+                    final int hintAction = directionAction;
+                    keyboard.post(() -> showKeyboardHint(keyboard, hintLabel, hintAction, false, upward));
+                } else {
                     keyboard.post(() -> hideKeyboardHint(0L));
                 }
             }
-            if (deltaY >= tracker.thresholdPx && Math.abs(deltaX) <= horizontalLimit) {
-                final int requestedAction = tracker.action;
+
+            int direction = GestureDirection.resolve(deltaX, deltaY, tracker.thresholdPx, tracker.t9,
+                    tracker.action != Config.ACTION_NONE, tracker.upAction != Config.ACTION_NONE);
+            if (direction != GestureDirection.NONE) {
+                final boolean triggeredUp = direction == GestureDirection.UP;
+                final int requestedAction = triggeredUp ? tracker.upAction : tracker.action;
                 final String key = tracker.key;
+                final boolean t9 = tracker.t9;
                 final Context context = keyboard.getContext();
                 tracker.markTriggered(keyboard);
 
@@ -1361,9 +1495,9 @@ public final class MainHook extends XposedModule {
                     catch (Throwable ignored) {}
                 }
 
-                keyboard.post(() -> showKeyboardHint(keyboard, null, requestedAction, true));
+                keyboard.post(() -> showKeyboardHint(keyboard, null, requestedAction, true, triggeredUp));
                 if (requestedAction != Config.ACTION_DISABLE) {
-                    keyboard.post(() -> performAction(context, keyboard, requestedAction, key));
+                    keyboard.post(() -> performAction(context, keyboard, requestedAction, key, t9, triggeredUp));
                 }
 
                 if (maskedAction == MotionEvent.ACTION_UP) tracker.clear(keyboard);
@@ -1379,7 +1513,7 @@ public final class MainHook extends XposedModule {
         return result;
     }
 
-    private void showKeyboardHint(View keyboard, String keyLabel, int action, boolean executed) {
+    private void showKeyboardHint(View keyboard, String keyLabel, int action, boolean executed, boolean upward) {
         Config displayConfig = configBridge.current();
         if (displayConfig == null || !displayConfig.showTriggerHint) {
             hideKeyboardHint(0L);
@@ -1404,11 +1538,11 @@ public final class MainHook extends XposedModule {
             String text;
             if (executed) {
                 text = action == Config.ACTION_DISABLE
-                        ? "✓ 已禁用下滑"
-                        : "✓ " + Config.actionName(action);
+                        ? (upward ? "✓ 已禁用上滑" : "✓ 已禁用下滑")
+                        : "✓ " + (upward ? "上滑 " : "下滑 ") + Config.actionName(action);
             } else {
                 String display = keyLabel == null || keyLabel.isEmpty() ? "当前键" : keyLabel;
-                text = display + " 下滑：" + Config.actionName(action);
+                text = display + (upward ? " 上滑：" : " 下滑：") + Config.actionName(action);
             }
             hint.setText(text);
             positionKeyboardHint(keyboard, hint);
@@ -1569,7 +1703,7 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private void performAction(Context context, View keyboard, int action, String key) {
+    private void performAction(Context context, View keyboard, int action, String key, boolean t9, boolean upward) {
         String actionName = Config.actionName(action);
         try {
             InputMethodService ime = imeRef.get();
@@ -1579,6 +1713,14 @@ public final class MainHook extends XposedModule {
                 return;
             }
             imeRef = new WeakReference<>(ime);
+
+            if (action == Config.ACTION_OPEN_EMBEDDED_SETTINGS) {
+                EditorInfo field = ime.getCurrentInputEditorInfo();
+                if (field != null && isPassword(field.inputType)) return;
+                hideKeyboardHint(0L);
+                openEmbeddedSettingsFromKeyboard(ime, keyboard);
+                return;
+            }
 
             if (ActionRegistry.isInputMethodAction(action)) {
                 hideKeyboardHint(0L);
@@ -1607,8 +1749,7 @@ public final class MainHook extends XposedModule {
 
             boolean success;
             if (action == Config.ACTION_INSERT_TEXT) {
-                boolean t9 = key != null && key.length() == 1 && key.charAt(0) >= '2' && key.charAt(0) <= '9';
-                success = performInsertText(connection, configBridge.current().textFor(key, t9));
+                success = performInsertText(connection, configBridge.current().textFor(key, t9, upward));
             } else if (ActionRegistry.isDocumentAction(action)) {
                 success = performDocumentAction(connection, action);
             } else if (ActionRegistry.isParagraphAction(action)) {
@@ -1626,6 +1767,55 @@ public final class MainHook extends XposedModule {
         }
     }
 
+
+    private void openEmbeddedSettingsFromKeyboard(InputMethodService ime, View keyboard) {
+        Activity host = keyboard == null ? null : findActivity(keyboard.getContext());
+        if (host != null && TARGET.equals(host.getPackageName())
+                && !host.isFinishing() && !host.isDestroyed()) {
+            try {
+                EmbeddedSettingsUi.show(host,
+                        () -> ConfigSnapshot.copyOf(configBridge.current()),
+                        config -> applyEmbeddedConfig(host, config));
+                logInfo("embedded settings opened in existing WeType Activity");
+                return;
+            } catch (Throwable throwable) {
+                logError("existing WeType Activity settings dialog failed", throwable);
+            }
+        }
+
+        // Prefer the Activity-backed internal UI (same implementation as About 5-tap).
+        // Do NOT route a failed attempt to the external module APK's MainActivity.
+        try {
+            android.content.Intent target =
+                    ime.getPackageManager().getLaunchIntentForPackage(TARGET);
+            if (target == null) {
+                throw new IllegalStateException("微信输入法没有可启动的应用页面");
+            }
+            target.putExtra(EXTRA_OPEN_EMBEDDED_SETTINGS, true);
+            target.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            ime.startActivity(target);
+            logInfo("keyboard swipe launched WeType Activity for embedded settings");
+            return;
+        } catch (Throwable throwable) {
+            logError("opening WeType Activity for embedded settings failed", throwable);
+        }
+
+        // As a secondary option, try the corrected IME window token. Never silently
+        // switch to standalone settings: report a useful failure if both approaches fail.
+        try {
+            EmbeddedSettingsUi.showFromKeyboard(ime,
+                    () -> ConfigSnapshot.copyOf(configBridge.current()),
+                    config -> applyEmbeddedConfig(ime, config));
+            logInfo("embedded settings opened as IME dialog fallback");
+        } catch (Throwable throwable) {
+            logError("embedded IME dialog fallback also failed", throwable);
+            android.widget.Toast.makeText(ime,
+                    "无法打开内置模块设置，请从微信输入法关于页进入并查看 LSPosed 日志",
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
 
     private boolean performInputMethodAction(InputMethodService ime, int action) {
         if (ime == null) return false;
@@ -2264,6 +2454,7 @@ public final class MainHook extends XposedModule {
         private String key;
         private String displayKey;
         private int action;
+        private int upAction;
         private boolean t9;
         private boolean triggered;
         private boolean active;
@@ -2276,16 +2467,18 @@ public final class MainHook extends XposedModule {
             key = null;
             displayKey = null;
             action = Config.ACTION_NONE;
+            upAction = Config.ACTION_NONE;
             t9 = false;
             triggered = false;
             active = true;
         }
 
-        void setBinding(View keyboard, KeyInfo keyInfo, int newAction, float threshold) {
+        void setBinding(View keyboard, KeyInfo keyInfo, int newAction, int newUpAction, float threshold) {
             if (!matches(keyboard)) return;
             key = keyInfo == null ? null : keyInfo.key;
             displayKey = keyInfo == null ? null : keyInfo.display;
             action = newAction;
+            upAction = newUpAction;
             t9 = keyInfo != null && keyInfo.t9;
             thresholdPx = Math.max(1f, threshold);
         }
@@ -2300,6 +2493,7 @@ public final class MainHook extends XposedModule {
             key = null;
             displayKey = null;
             action = Config.ACTION_NONE;
+            upAction = Config.ACTION_NONE;
             t9 = false;
             triggered = false;
         }

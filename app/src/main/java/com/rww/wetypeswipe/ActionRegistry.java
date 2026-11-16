@@ -37,7 +37,7 @@ final class ActionRegistry {
         boolean has(int flag) { return (flags & flag) != 0; }
     }
 
-    private static final Spec[] BY_ID = new Spec[24];
+    private static final Spec[] BY_ID = new Spec[25];
 
     private static final int[] MENU_ORDER = {
             Config.ACTION_NONE,
@@ -63,7 +63,8 @@ final class ActionRegistry {
             Config.ACTION_NEXT_INPUT_METHOD,
             Config.ACTION_PREVIOUS_INPUT_METHOD,
             Config.ACTION_SHOW_INPUT_METHOD_PICKER,
-            Config.ACTION_DISABLE
+            Config.ACTION_DISABLE,
+            Config.ACTION_OPEN_EMBEDDED_SETTINGS
     };
 
     private static final int[] QWERTY_ORDER = {
@@ -87,7 +88,8 @@ final class ActionRegistry {
             Config.ACTION_SELECT_TO_DOCUMENT_END,
             Config.ACTION_NEXT_INPUT_METHOD,
             Config.ACTION_PREVIOUS_INPUT_METHOD,
-            Config.ACTION_SHOW_INPUT_METHOD_PICKER
+            Config.ACTION_SHOW_INPUT_METHOD_PICKER,
+            Config.ACTION_OPEN_EMBEDDED_SETTINGS
     };
 
     static {
@@ -150,6 +152,10 @@ final class ActionRegistry {
                 Config.KEY_SHOW_INPUT_METHOD_PICKER,
                 c -> c.showInputMethodPicker, (c, v) -> c.showInputMethodPicker = v,
                 FLAG_INPUT_METHOD | FLAG_PASSWORD_ALLOWED));
+        put(qwerty(Config.ACTION_OPEN_EMBEDDED_SETTINGS, "内置模块设置", "设置",
+                Config.KEY_OPEN_EMBEDDED_SETTINGS,
+                c -> c.openEmbeddedSettings, (c, v) -> c.openEmbeddedSettings = v,
+                0));
     }
 
     private ActionRegistry() {}

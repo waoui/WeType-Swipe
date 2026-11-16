@@ -30,6 +30,7 @@ final class Config {
     static final String KEY_NEXT_INPUT_METHOD = "next_input_method";
     static final String KEY_PREVIOUS_INPUT_METHOD = "previous_input_method";
     static final String KEY_SHOW_INPUT_METHOD_PICKER = "show_input_method_picker";
+    static final String KEY_OPEN_EMBEDDED_SETTINGS = "open_embedded_settings";
     static final String KEY_DISABLED_KEYS = "disabled_keys";
     static final String KEY_THRESHOLD = "threshold";
     static final String KEY_T9_THRESHOLD = "t9_threshold";
@@ -42,6 +43,13 @@ final class Config {
     static final String KEY_T9_LABEL_PREFIX = "t9_label_";
     static final String KEY_QWERTY_TEXT_PREFIX = "qwerty_text_";
     static final String KEY_T9_TEXT_PREFIX = "t9_text_";
+    // New upward preferences do not alter existing v1.11.9 downward keys.
+    static final String KEY_UP_QWERTY_ACTION_PREFIX = "up_qwerty_action_";
+    static final String KEY_UP_T9_ACTION_PREFIX = "up_t9_action_";
+    static final String KEY_UP_QWERTY_TEXT_PREFIX = "up_qwerty_text_";
+    static final String KEY_UP_T9_TEXT_PREFIX = "up_t9_text_";
+    static final String KEY_UP_QWERTY_LABEL_PREFIX = "up_qwerty_label_";
+    static final String KEY_UP_T9_LABEL_PREFIX = "up_t9_label_";
     static final String LABEL_HIDDEN = "__HIDDEN__";
 
     static final String KEY_T9_2 = "t9_key_2";
@@ -78,6 +86,7 @@ final class Config {
     static final int ACTION_NEXT_INPUT_METHOD = 21;
     static final int ACTION_PREVIOUS_INPUT_METHOD = 22;
     static final int ACTION_SHOW_INPUT_METHOD_PICKER = 23;
+    static final int ACTION_OPEN_EMBEDDED_SETTINGS = 24;
 
     static final String[] ACTION_MENU_LABELS = ActionRegistry.menuLabels();
 
@@ -102,6 +111,7 @@ final class Config {
     String nextInputMethod = "";
     String previousInputMethod = "";
     String showInputMethodPicker = "";
+    String openEmbeddedSettings = "";
     String disabledKeys = "";
     int thresholdDp = 12;
     int t9ThresholdDp = 20;
@@ -115,6 +125,12 @@ final class Config {
     final String[] t9Labels = new String[10];
     final String[] qwertyTexts = new String[26];
     final String[] t9Texts = new String[10];
+    final int[] upQwertyActions = new int[26];
+    final int[] upT9Actions = new int[10];
+    final String[] upQwertyTexts = new String[26];
+    final String[] upT9Texts = new String[10];
+    final String[] upQwertyLabels = new String[26];
+    final String[] upT9Labels = new String[10];
     private final int[] actionMap = new int[26];
     private boolean hasAnyBinding;
 
@@ -138,6 +154,22 @@ final class Config {
         if (!hasAnyBinding) {
             for (int digit = 2; digit <= 9; digit++) {
                 if (validAction(t9Actions[digit]) != ACTION_NONE) {
+                    hasAnyBinding = true;
+                    break;
+                }
+            }
+        }
+        if (!hasAnyBinding) {
+            for (int i = 0; i < upQwertyActions.length; i++) {
+                if (actionForUp(String.valueOf((char) ('a' + i)), false) != ACTION_NONE) {
+                    hasAnyBinding = true;
+                    break;
+                }
+            }
+        }
+        if (!hasAnyBinding) {
+            for (int digit = 2; digit <= 9; digit++) {
+                if (actionForUp(String.valueOf(digit), true) != ACTION_NONE) {
                     hasAnyBinding = true;
                     break;
                 }
@@ -180,6 +212,25 @@ final class Config {
         return index >= 0 ? actionMap[index] : ACTION_NONE;
     }
 
+    int actionForUp(String key, boolean t9) {
+        if (key == null || key.length() != 1) return ACTION_NONE;
+        char value = Character.toLowerCase(key.charAt(0));
+        int action;
+        if (t9 && value >= '2' && value <= '9') {
+            action = validAction(upT9Actions[value - '0']);
+        } else if (!t9 && value >= 'a' && value <= 'z') {
+            action = validAction(upQwertyActions[value - 'a']);
+        } else {
+            return ACTION_NONE;
+        }
+        return action == ACTION_INSERT_TEXT && textFor(key, t9, true).isEmpty()
+                ? ACTION_NONE : action;
+    }
+
+    int actionFor(String key, boolean t9, boolean upward) {
+        return upward ? actionForUp(key, t9) : actionFor(key, t9);
+    }
+
     boolean hasAnyBinding() {
         return hasAnyBinding;
     }
@@ -211,6 +262,36 @@ final class Config {
         return KEY_T9_TEXT_PREFIX + digit;
     }
 
+    static String upQwertyActionPrefKey(char key) {
+        if (key < 'a' || key > 'z') throw new IllegalArgumentException("key must be a..z");
+        return KEY_UP_QWERTY_ACTION_PREFIX + key;
+    }
+
+    static String upQwertyTextPrefKey(char key) {
+        if (key < 'a' || key > 'z') throw new IllegalArgumentException("key must be a..z");
+        return KEY_UP_QWERTY_TEXT_PREFIX + key;
+    }
+
+    static String upQwertyLabelPrefKey(char key) {
+        if (key < 'a' || key > 'z') throw new IllegalArgumentException("key must be a..z");
+        return KEY_UP_QWERTY_LABEL_PREFIX + key;
+    }
+
+    static String upT9ActionPrefKey(int digit) {
+        if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
+        return KEY_UP_T9_ACTION_PREFIX + digit;
+    }
+
+    static String upT9TextPrefKey(int digit) {
+        if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
+        return KEY_UP_T9_TEXT_PREFIX + digit;
+    }
+
+    static String upT9LabelPrefKey(int digit) {
+        if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
+        return KEY_UP_T9_LABEL_PREFIX + digit;
+    }
+
     static String t9LabelPrefKey(int digit) {
         if (digit < 2 || digit > 9) throw new IllegalArgumentException("digit must be 2..9");
         return KEY_T9_LABEL_PREFIX + digit;
@@ -234,24 +315,56 @@ final class Config {
     }
 
     String textFor(String key, boolean t9) {
+        return textFor(key, t9, false);
+    }
+
+    String textFor(String key, boolean t9, boolean upward) {
         if (key == null || key.length() != 1) return "";
         char value = Character.toLowerCase(key.charAt(0));
-        if (t9 && value >= '2' && value <= '9') return normalizeInsertedText(t9Texts[value - '0']);
-        if (!t9 && value >= 'a' && value <= 'z') return normalizeInsertedText(qwertyTexts[value - 'a']);
+        if (t9 && value >= '2' && value <= '9') {
+            return normalizeInsertedText(upward ? upT9Texts[value - '0'] : t9Texts[value - '0']);
+        }
+        if (!t9 && value >= 'a' && value <= 'z') {
+            return normalizeInsertedText(upward ? upQwertyTexts[value - 'a'] : qwertyTexts[value - 'a']);
+        }
         return "";
     }
 
     String labelFor(String key, boolean t9, int action) {
+        return labelFor(key, t9, action, false);
+    }
+
+    String labelFor(String key, boolean t9, int action, boolean upward) {
         String configured = "";
         if (key != null && key.length() == 1) {
             char value = Character.toLowerCase(key.charAt(0));
-            if (t9 && value >= '2' && value <= '9') configured = t9Labels[value - '0'];
-            else if (!t9 && value >= 'a' && value <= 'z') configured = qwertyLabels[value - 'a'];
+            if (t9 && value >= '2' && value <= '9') {
+                configured = upward ? upT9Labels[value - '0'] : t9Labels[value - '0'];
+            } else if (!t9 && value >= 'a' && value <= 'z') {
+                configured = upward ? upQwertyLabels[value - 'a'] : qwertyLabels[value - 'a'];
+            }
         }
         configured = normalizeLabelValue(configured);
         if (LABEL_HIDDEN.equals(configured)) return "";
         if (!configured.isEmpty()) return configured;
         return shortActionLabel(action);
+    }
+
+    String displayBindingLabel(String key, boolean t9) {
+        int down = actionFor(key, t9);
+        int up = actionForUp(key, t9);
+        String downLabel = down == ACTION_NONE || down == ACTION_DISABLE
+                ? "" : labelFor(key, t9, down);
+        String upLabel = up == ACTION_NONE || up == ACTION_DISABLE
+                ? "" : labelFor(key, t9, up, true);
+        if (upLabel.isEmpty()) return downLabel;
+        if (downLabel.isEmpty()) return "↑" + upLabel;
+        return "↓" + compactLabel(downLabel) + "↑" + compactLabel(upLabel);
+    }
+
+    private static String compactLabel(String value) {
+        int count = value.codePointCount(0, value.length());
+        return count > 2 ? value.substring(0, value.offsetByCodePoints(0, 2)) : value;
     }
 
     static String shortActionLabel(int action) {

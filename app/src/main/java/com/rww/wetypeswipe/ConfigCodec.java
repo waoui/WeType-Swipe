@@ -20,6 +20,8 @@ final class ConfigCodec {
     private ConfigCodec() {}
 
     static Config fromPreferences(SharedPreferences preferences) {
+        // Do not apply the new preset to a legacy installation with any persisted state.
+        if (preferences.getAll().isEmpty()) return RecommendedDefaults.create();
         return read(new Reader() {
             @Override public String getString(String key, String fallback) {
                 return preferences.getString(key, fallback);
@@ -84,6 +86,12 @@ final class ConfigCodec {
                     reader.getString(Config.qwertyLabelPrefKey(key), ""));
             config.qwertyTexts[key - 'a'] = Config.normalizeInsertedText(
                     reader.getString(Config.qwertyTextPrefKey(key), ""));
+            config.upQwertyActions[key - 'a'] = Config.validAction(
+                    reader.getInt(Config.upQwertyActionPrefKey(key), Config.ACTION_NONE));
+            config.upQwertyTexts[key - 'a'] = Config.normalizeInsertedText(
+                    reader.getString(Config.upQwertyTextPrefKey(key), ""));
+            config.upQwertyLabels[key - 'a'] = Config.normalizeLabelValue(
+                    reader.getString(Config.upQwertyLabelPrefKey(key), ""));
         }
         for (int digit = 2; digit <= 9; digit++) {
             config.t9Actions[digit] = Config.validAction(
@@ -92,6 +100,12 @@ final class ConfigCodec {
                     reader.getString(Config.t9LabelPrefKey(digit), ""));
             config.t9Texts[digit] = Config.normalizeInsertedText(
                     reader.getString(Config.t9TextPrefKey(digit), ""));
+            config.upT9Actions[digit] = Config.validAction(
+                    reader.getInt(Config.upT9ActionPrefKey(digit), Config.ACTION_NONE));
+            config.upT9Texts[digit] = Config.normalizeInsertedText(
+                    reader.getString(Config.upT9TextPrefKey(digit), ""));
+            config.upT9Labels[digit] = Config.normalizeLabelValue(
+                    reader.getString(Config.upT9LabelPrefKey(digit), ""));
         }
         config.rebuildActionMap();
         return config;
@@ -114,6 +128,12 @@ final class ConfigCodec {
                     Config.normalizeLabelValue(config.qwertyLabels[key - 'a']));
             writer.putString(Config.qwertyTextPrefKey(key),
                     Config.normalizeInsertedText(config.qwertyTexts[key - 'a']));
+            writer.putInt(Config.upQwertyActionPrefKey(key),
+                    Config.validAction(config.upQwertyActions[key - 'a']));
+            writer.putString(Config.upQwertyTextPrefKey(key),
+                    Config.normalizeInsertedText(config.upQwertyTexts[key - 'a']));
+            writer.putString(Config.upQwertyLabelPrefKey(key),
+                    Config.normalizeLabelValue(config.upQwertyLabels[key - 'a']));
         }
         for (int digit = 2; digit <= 9; digit++) {
             writer.putInt(Config.t9PrefKey(digit), config.t9Actions[digit]);
@@ -121,6 +141,12 @@ final class ConfigCodec {
                     Config.normalizeLabelValue(config.t9Labels[digit]));
             writer.putString(Config.t9TextPrefKey(digit),
                     Config.normalizeInsertedText(config.t9Texts[digit]));
+            writer.putInt(Config.upT9ActionPrefKey(digit),
+                    Config.validAction(config.upT9Actions[digit]));
+            writer.putString(Config.upT9TextPrefKey(digit),
+                    Config.normalizeInsertedText(config.upT9Texts[digit]));
+            writer.putString(Config.upT9LabelPrefKey(digit),
+                    Config.normalizeLabelValue(config.upT9Labels[digit]));
         }
     }
 
@@ -145,6 +171,12 @@ final class ConfigCodec {
         System.arraycopy(source.t9Labels, 0, target.t9Labels, 0, source.t9Labels.length);
         System.arraycopy(source.qwertyTexts, 0, target.qwertyTexts, 0, source.qwertyTexts.length);
         System.arraycopy(source.t9Texts, 0, target.t9Texts, 0, source.t9Texts.length);
+        System.arraycopy(source.upQwertyActions, 0, target.upQwertyActions, 0, source.upQwertyActions.length);
+        System.arraycopy(source.upT9Actions, 0, target.upT9Actions, 0, source.upT9Actions.length);
+        System.arraycopy(source.upQwertyTexts, 0, target.upQwertyTexts, 0, source.upQwertyTexts.length);
+        System.arraycopy(source.upT9Texts, 0, target.upT9Texts, 0, source.upT9Texts.length);
+        System.arraycopy(source.upQwertyLabels, 0, target.upQwertyLabels, 0, source.upQwertyLabels.length);
+        System.arraycopy(source.upT9Labels, 0, target.upT9Labels, 0, source.upT9Labels.length);
         target.rebuildActionMap();
         return target;
     }
