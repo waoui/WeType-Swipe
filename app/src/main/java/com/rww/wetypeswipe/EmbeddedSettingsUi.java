@@ -180,19 +180,19 @@ final class EmbeddedSettingsUi {
         card.addView(divider());
         LinearLayout tools = horizontal();
         tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView defaults = smallAction("恢复默认 Z/X/C/V", false);
+        TextView defaults = smallAction("恢复默认下滑 Z/X/C/V", false);
         defaults.setOnClickListener(v -> {
             EmbeddedConfigEditor.restoreDefaults(config);
             refreshQwerty();
-            Toast.makeText(activity, "已恢复默认 Z/X/C/V", Toast.LENGTH_SHORT).show();
+            Toast.makeText(activity, "已恢复默认下滑 Z/X/C/V", Toast.LENGTH_SHORT).show();
         });
         tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(activity, 48), 1f));
-        TextView clear = smallAction("清空 26 键", true);
+        TextView clear = smallAction("清空 26 键下滑", true);
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(activity, 48), 1f);
         clearParams.leftMargin = dp(activity, 8);
         tools.addView(clear, clearParams);
         clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
-                .setTitle("清空 26 键映射？")
+                .setTitle("清空 26 键下滑映射？")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     EmbeddedConfigEditor.clearQwerty(config);
@@ -267,11 +267,11 @@ final class EmbeddedSettingsUi {
         card.addView(divider());
         LinearLayout tools = horizontal();
         tools.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 12));
-        TextView clear = smallAction("清空九宫格映射", true);
+        TextView clear = smallAction("清空九宫格下滑", true);
         tools.addView(clear, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)));
         clear.setOnClickListener(v -> new AlertDialog.Builder(activity)
-                .setTitle("清空九宫格映射？")
+                .setTitle("清空九宫格下滑映射？")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (d, w) -> {
                     for (int digit = 2; digit <= 9; digit++) {
