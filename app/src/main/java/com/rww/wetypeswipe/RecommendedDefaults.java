@@ -23,6 +23,8 @@ final class RecommendedDefaults {
         }
         Arrays.fill(config.qwertyTexts, "");
         config.disabledKeys = "b";
+        Arrays.fill(config.qwertyLabels, "");
+        config.qwertyLabels['s' - 'a'] = "常用语";
 
         bind(config, Config.ACTION_OPEN_CLIPBOARD, "a");
         bind(config, Config.ACTION_OPEN_QUICK_PHRASE, "s");
