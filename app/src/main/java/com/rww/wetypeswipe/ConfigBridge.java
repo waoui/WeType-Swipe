@@ -7,11 +7,18 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.SystemClock;
 
-/** Owns cross-process config synchronization and the target-process cache. */
+import java.util.UUID;
+
+/**
+ * The WeType target-private preferences are the ONLY editable configuration source.
+ * The module package is consulted once only if this target has never stored a config.
+ */
 final class ConfigBridge {
     private static final String MODULE_PACKAGE = "com.rww.wetypeswipe";
-    private static final String MODULE_SYNC_RECEIVER = MODULE_PACKAGE + ".ConfigSyncReceiver";
+    private static final String MODULE_LEGACY_RECEIVER = MODULE_PACKAGE + ".ConfigSyncReceiver";
+    private static final long MIGRATION_RETRY_MS = 30_000L;
 
     interface Listener {
         void onConfigChanged(Config config);
@@ -21,10 +28,13 @@ final class ConfigBridge {
 
     private final String targetPackage;
     private final Listener listener;
-    private volatile Config current = defaultConfig();
+    private volatile Config current = RecommendedDefaults.create();
     private volatile boolean receiverRegistered;
     private volatile boolean targetCacheLoaded;
+    private volatile String migrationToken;
+    private volatile long lastMigrationRequestTime;
     private BroadcastReceiver configReceiver;
+    private BroadcastReceiver legacyResponseReceiver;
 
     ConfigBridge(String targetPackage, Listener listener) {
         this.targetPackage = targetPackage;
@@ -38,37 +48,32 @@ final class ConfigBridge {
         if (context == null) return;
         Context stable = stableContext(context);
         registerReceiver(stable);
-        loadFromTargetCache(stable);
+        // Never ask the old standalone application to overwrite existing target settings.
+        if (!targetCacheLoaded) {
+            loadFromTargetCache(stable);
+            if (!targetCacheLoaded) requestLegacyMigration(stable);
+        }
     }
 
     synchronized void applyEmbedded(Context context, Config config) {
-        if (context == null || config == null) return;
-        try {
-            int currentRevision = current == null ? 0 : current.revision;
-            config.revision = Math.max(config.revision, currentRevision) + 1;
-            config.rebuildActionMap();
-            setCurrent(config, true);
-
-            Context stable = stableContext(context);
-            persistTargetCache(stable, config);
-
-            Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
-            changed.setPackage(targetPackage);
-            ConfigSnapshot.putInto(changed, config);
-            stable.sendBroadcast(changed);
-
-            // The embedded editor runs in the WeType process, while the standalone editor
-            // persists settings in the module app sandbox. Mirror every embedded save back to
-            // the module package so both entry points keep one effective configuration.
-            Intent moduleSync = new Intent(Config.ACTION_CONFIG_CHANGED);
-            moduleSync.setClassName(MODULE_PACKAGE, MODULE_SYNC_RECEIVER);
-            ConfigSnapshot.putInto(moduleSync, config);
-            stable.sendBroadcast(moduleSync);
-
-            listener.info("embedded settings saved revision=" + config.revision);
-        } catch (Throwable throwable) {
-            listener.error("embedded settings save failed", throwable);
+        if (context == null || config == null) {
+            throw new IllegalArgumentException("内置设置配置不可为空");
         }
+        Config saved = ConfigSnapshot.copyOf(config);
+        saved.revision = Math.max(saved.revision, current.revision) + 1;
+        saved.rebuildActionMap();
+        Context stable = stableContext(context);
+        if (!persistTargetCache(stable, saved)) {
+            throw new IllegalStateException("无法保存微信输入法内部配置；原有配置未覆盖");
+        }
+        migrationToken = null;
+        setCurrent(saved, true);
+        // Other WeType processes (e.g. IME and UI) update their in-memory snapshots.
+        Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
+        changed.setPackage(targetPackage);
+        ConfigSnapshot.putInto(changed, saved);
+        stable.sendBroadcast(changed);
+        info("embedded config committed as sole source, revision=" + saved.revision);
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -76,42 +81,120 @@ final class ConfigBridge {
         if (receiverRegistered || context == null) return;
         configReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context receiverContext, Intent intent) {
-                if (intent == null || !Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
+                if (intent == null
+                        || !Config.ACTION_CONFIG_CHANGED.equals(intent.getAction())) return;
                 if (intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false)) {
                     try {
-                        Config config = ConfigCodec.fromIntent(intent);
-                        setCurrent(config, true);
-                        persistTargetCache(receiverContext, config);
-                        return;
-                    } catch (Throwable throwable) {
-                        listener.error("config snapshot parse failed", throwable);
+                        Config incoming = ConfigCodec.fromIntent(intent);
+                        if (targetCacheLoaded && incoming.revision < current.revision) {
+                            info("ignored stale intra-WeType snapshot revision=" + incoming.revision);
+                            return;
+                        }
+                        if (persistTargetCache(receiverContext, incoming)) {
+                            setCurrent(incoming, true);
+                        }
+                    } catch (Throwable error) {
+                        error("intra-WeType snapshot rejected", error);
                     }
+                } else {
+                    loadFromTargetCache(receiverContext);
                 }
-                loadFromTargetCache(receiverContext);
             }
         };
+        legacyResponseReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context receiverContext, Intent intent) {
+                if (intent != null
+                        && Config.ACTION_LEGACY_CONFIG_RESPONSE.equals(intent.getAction())) {
+                    handleLegacyResponse(receiverContext, intent);
+                }
+            }
+        };
+
+        boolean registeredLocal = false;
         try {
-            IntentFilter filter = new IntentFilter(Config.ACTION_CONFIG_CHANGED);
+            IntentFilter local = new IntentFilter(Config.ACTION_CONFIG_CHANGED);
+            IntentFilter legacy = new IntentFilter(Config.ACTION_LEGACY_CONFIG_RESPONSE);
             if (Build.VERSION.SDK_INT >= 33) {
-                context.registerReceiver(configReceiver, filter, Context.RECEIVER_EXPORTED);
+                // Configuration changes are accepted only from the target application's
+                // own UID; the separate exported path carries only token-gated migration.
+                context.registerReceiver(configReceiver, local, Context.RECEIVER_NOT_EXPORTED);
+                registeredLocal = true;
+                context.registerReceiver(legacyResponseReceiver, legacy, Context.RECEIVER_EXPORTED);
             } else {
-                context.registerReceiver(configReceiver, filter);
+                context.registerReceiver(configReceiver, local);
+                registeredLocal = true;
+                context.registerReceiver(legacyResponseReceiver, legacy);
             }
             receiverRegistered = true;
-        } catch (Throwable throwable) {
-            listener.error("config receiver registration failed", throwable);
+        } catch (Throwable error) {
+            if (registeredLocal) {
+                try { context.unregisterReceiver(configReceiver); }
+                catch (RuntimeException ignored) {}
+            }
+            receiverRegistered = false;
+            error("target config receivers registration failed", error);
         }
     }
 
-    private synchronized void persistTargetCache(Context context, Config config) {
+    private synchronized void requestLegacyMigration(Context context) {
+        if (targetCacheLoaded || !receiverRegistered) return;
+        long now = SystemClock.elapsedRealtime();
+        if (migrationToken != null && now - lastMigrationRequestTime < MIGRATION_RETRY_MS) return;
+        migrationToken = UUID.randomUUID().toString();
+        lastMigrationRequestTime = now;
+        try {
+            Intent request = new Intent(Config.ACTION_LEGACY_CONFIG_REQUEST);
+            request.setClassName(MODULE_PACKAGE, MODULE_LEGACY_RECEIVER);
+            request.putExtra(Config.EXTRA_MIGRATION_TOKEN, migrationToken);
+            context.sendBroadcast(request);
+            info("requested optional one-time legacy config migration");
+        } catch (RuntimeException error) {
+            migrationToken = null;
+            error("legacy config migration request failed; defaults remain available", error);
+        }
+    }
+
+    private synchronized void handleLegacyResponse(Context context, Intent intent) {
+        SharedPreferences prefs = context.getSharedPreferences(
+                Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE);
+        boolean alreadySaved = prefs.contains(Config.KEY_REVISION);
+        if (!LegacyMigrationPolicy.canImport(targetCacheLoaded, alreadySaved,
+                migrationToken, intent.getStringExtra(Config.EXTRA_MIGRATION_TOKEN),
+                intent.getBooleanExtra(Config.EXTRA_SNAPSHOT, false))) {
+            if (targetCacheLoaded || alreadySaved) migrationToken = null;
+            info("ignored legacy response: invalid token or authoritative WeType config exists");
+            return;
+        }
+        try {
+            Config imported = ConfigCodec.fromIntent(intent);
+            imported.revision = Math.max(1, imported.revision);
+            imported.rebuildActionMap();
+            if (!persistTargetCache(context, imported)) return;
+            migrationToken = null;
+            setCurrent(imported, true);
+            // A target may have separate IME and launcher processes. Propagate the
+            // migrated snapshot immediately so another live target process is refreshed.
+            Intent changed = new Intent(Config.ACTION_CONFIG_CHANGED);
+            changed.setPackage(targetPackage);
+            ConfigSnapshot.putInto(changed, imported);
+            context.sendBroadcast(changed);
+            info("legacy module configuration migrated once, revision=" + imported.revision);
+        } catch (Throwable error) {
+            this.error("legacy configuration migration rejected", error);
+        }
+    }
+
+    private synchronized boolean persistTargetCache(Context context, Config config) {
         try {
             SharedPreferences.Editor editor = context.getSharedPreferences(
                     Config.TARGET_CACHE_PREFS, Context.MODE_PRIVATE).edit();
             ConfigCodec.writeToPreferences(editor, config);
-            editor.commit();
+            if (editor.commit()) return true;
+            error("target config commit returned false", null);
         } catch (Throwable throwable) {
-            listener.error("target config cache write failed", throwable);
+            error("target config commit failed", throwable);
         }
+        return false;
     }
 
     private synchronized void loadFromTargetCache(Context context) {
@@ -123,9 +206,8 @@ final class ConfigBridge {
                 return;
             }
             setCurrent(ConfigCodec.fromPreferences(prefs), true);
-        } catch (Throwable throwable) {
-            targetCacheLoaded = false;
-            listener.error("target config cache load failed", throwable);
+        } catch (Throwable error) {
+            error("target config load failed; old preferences remain preserved", error);
         }
     }
 
@@ -141,7 +223,11 @@ final class ConfigBridge {
         return app == null ? context : app;
     }
 
-    private static Config defaultConfig() {
-        return RecommendedDefaults.create();
+    private void info(String message) {
+        if (listener != null) listener.info(message);
+    }
+
+    private void error(String message, Throwable throwable) {
+        if (listener != null) listener.error(message, throwable);
     }
 }

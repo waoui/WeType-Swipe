@@ -5,6 +5,9 @@ import java.util.Locale;
 
 final class Config {
     static final String ACTION_CONFIG_CHANGED = "com.rww.wetypeswipe.CONFIG_CHANGED";
+    static final String ACTION_LEGACY_CONFIG_REQUEST = "com.rww.wetypeswipe.LEGACY_CONFIG_REQUEST";
+    static final String ACTION_LEGACY_CONFIG_RESPONSE = "com.rww.wetypeswipe.LEGACY_CONFIG_RESPONSE";
+    static final String EXTRA_MIGRATION_TOKEN = "legacy_migration_token";
     static final String PREFS = "gesture_config";
     static final String TARGET_CACHE_PREFS = "wetype_swipe_module_cache_v1";
     static final String EXTRA_SNAPSHOT = "config_snapshot";
