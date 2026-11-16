@@ -232,11 +232,11 @@ public final class MainActivity extends Activity {
         LinearLayout tools = horizontal();
         tools.setPadding(dp(12), dp(10), dp(12), dp(12));
 
-        TextView defaults = smallAction("恢复默认 Z/X/C/V", false);
+        TextView defaults = smallAction("恢复默认下滑 Z/X/C/V", false);
         defaults.setOnClickListener(v -> restoreQwertyDefaults());
         tools.addView(defaults, new LinearLayout.LayoutParams(0, dp(48), 1f));
 
-        TextView clear = smallAction("清空 26 键", true);
+        TextView clear = smallAction("清空 26 键下滑", true);
         LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         clearParams.leftMargin = dp(8);
         tools.addView(clear, clearParams);
@@ -327,7 +327,7 @@ public final class MainActivity extends Activity {
         card.addView(divider());
         LinearLayout tools = horizontal();
         tools.setPadding(dp(12), dp(10), dp(12), dp(12));
-        TextView clear = smallAction("清空九宫格映射", true);
+        TextView clear = smallAction("清空九宫格下滑", true);
         tools.addView(clear, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
         clear.setOnClickListener(v -> confirmClearT9());
@@ -824,7 +824,7 @@ public final class MainActivity extends Activity {
 
     private void confirmClearQwerty() {
         new AlertDialog.Builder(this)
-                .setTitle("清空 26 键映射？")
+                .setTitle("清空 26 键下滑映射？")
                 .setMessage("将清空全部快捷功能和禁用下滑按键，保存前仍可重新设置。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (dialog, which) -> {
@@ -838,7 +838,7 @@ public final class MainActivity extends Activity {
 
     private void confirmClearT9() {
         new AlertDialog.Builder(this)
-                .setTitle("清空九宫格映射？")
+                .setTitle("清空九宫格下滑映射？")
                 .setMessage("2–9 将全部恢复为未绑定，保存前仍可重新设置。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("清空", (dialog, which) -> {
