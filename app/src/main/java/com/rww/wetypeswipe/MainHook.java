@@ -160,6 +160,13 @@ public final class MainHook extends XposedModule {
         hookAfter(Activity.class.getDeclaredMethod("onNewIntent", android.content.Intent.class),
                 chain -> onTargetActivityNewIntent(chain.getThisObject(),
                         (android.content.Intent) chain.getArg(0)));
+        hookAfter(Activity.class.getDeclaredMethod("onWindowFocusChanged", boolean.class),
+                chain -> {
+                    if (Boolean.TRUE.equals(chain.getArg(0))
+                            && chain.getThisObject() instanceof Activity) {
+                        scheduleEmbeddedSettingsOnActivity((Activity) chain.getThisObject());
+                    }
+                });
         hookAfter(InputMethodService.class.getDeclaredMethod("onConfigurationChanged", Configuration.class),
                 chain -> captureConfiguration(chain.getThisObject(), (Configuration) chain.getArg(0)));
         hookBefore(InputMethodService.class.getDeclaredMethod("onStartInput", EditorInfo.class, boolean.class),
@@ -359,6 +366,9 @@ public final class MainHook extends XposedModule {
             if (SystemClock.uptimeMillis() >= embeddedSettingsLaunchDeadlineMs) {
                 embeddedSettingsLaunchPending = false;
                 logInfo("embedded settings launch request timed out before usable Activity");
+                android.widget.Toast.makeText(activity,
+                        "内置模块设置启动超时，请从微信输入法关于页进入",
+                        android.widget.Toast.LENGTH_LONG).show();
                 return;
             }
             if (activity.isFinishing() || activity.isDestroyed()
