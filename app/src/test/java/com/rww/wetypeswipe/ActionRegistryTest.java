@@ -9,10 +9,10 @@ import org.junit.Test;
 
 public final class ActionRegistryTest {
     @Test public void everyPublishedActionIdIsRegisteredExactlyOnce() {
-        int[] expected = new int[24];
+        int[] expected = new int[25];
         for (int i = 0; i < expected.length; i++) expected[i] = i;
         assertArrayEquals(expected, ActionRegistry.registeredIds());
-        assertEquals(24, ActionRegistry.registeredCount());
+        assertEquals(25, ActionRegistry.registeredCount());
     }
 
     @Test public void menuRoundTripsEveryPosition() {
