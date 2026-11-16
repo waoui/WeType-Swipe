@@ -390,17 +390,17 @@ final class EmbeddedSettingsUi {
 
     private View buildGeneralCard() {
         LinearLayout card = createCard("通用设置", null, false);
-        showLabels = checkbox("显示按键底部功能文字", config.showKeyLabels);
+        showLabels = checkbox("显示按键上下滑功能文字", config.showKeyLabels);
         showLabels.setMinHeight(dp(activity, 54));
         card.addView(showLabels, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         card.addView(divider());
 
-        showHint = checkbox("显示下滑触发提示", config.showTriggerHint);
+        showHint = checkbox("显示滑动触发提示", config.showTriggerHint);
         showHint.setMinHeight(dp(activity, 54));
         card.addView(showHint, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView displayNote = text(activity, "关闭后只隐藏提示，不影响下滑功能。", 12, SECONDARY);
+        TextView displayNote = text(activity, "关闭后只隐藏提示，不影响上滑或下滑功能。", 12, SECONDARY);
         displayNote.setPadding(dp(activity, 18), 0, dp(activity, 18), dp(activity, 12));
         card.addView(displayNote);
         card.addView(divider());
