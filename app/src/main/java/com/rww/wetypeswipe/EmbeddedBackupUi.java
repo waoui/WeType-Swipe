@@ -60,7 +60,7 @@ final class EmbeddedBackupUi {
                 }
                 CharSequence raw = clipboard.getPrimaryClip().getItemAt(0).coerceToText(context);
                 Config candidate = ConfigBackup.importText(raw == null ? "" : raw.toString());
-                new AlertDialog.Builder(context)
+                AlertDialog confirm = new AlertDialog.Builder(context)
                         .setTitle("确认导入配置？")
                         .setMessage("备份已通过格式检查。导入会覆盖上下滑动作、标签、文本和手势设置。建议先复制旧配置。")
                         .setNegativeButton("取消", null)
@@ -72,7 +72,8 @@ final class EmbeddedBackupUi {
                                 Toast.makeText(context, "导入失败：" + error.getMessage(), Toast.LENGTH_LONG).show();
                             }
                         })
-                        .show();
+                        .create();
+                ImeDialogCompat.show(context, confirm);
             } catch (Exception e) {
                 Toast.makeText(context, "配置导入失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
             }
