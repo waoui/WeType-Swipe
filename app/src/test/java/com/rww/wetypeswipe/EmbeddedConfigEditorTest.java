@@ -23,9 +23,14 @@ public final class EmbeddedConfigEditorTest {
 
         EmbeddedConfigEditor.restoreDefaults(config);
         assertEquals(Config.ACTION_SELECT_ALL, EmbeddedConfigEditor.actionForQwerty(config, "z"));
-        assertEquals(Config.ACTION_CUT, EmbeddedConfigEditor.actionForQwerty(config, "x"));
-        assertEquals(Config.ACTION_COPY, EmbeddedConfigEditor.actionForQwerty(config, "c"));
+        assertEquals(Config.ACTION_CUT_ALL, EmbeddedConfigEditor.actionForQwerty(config, "x"));
+        assertEquals(Config.ACTION_COPY_ALL, EmbeddedConfigEditor.actionForQwerty(config, "c"));
         assertEquals(Config.ACTION_PASTE, EmbeddedConfigEditor.actionForQwerty(config, "v"));
+        assertEquals(Config.ACTION_OPEN_CLIPBOARD, EmbeddedConfigEditor.actionForQwerty(config, "a"));
+        assertEquals(Config.ACTION_OPEN_QUICK_PHRASE, EmbeddedConfigEditor.actionForQwerty(config, "s"));
+        assertEquals(Config.ACTION_OPEN_EMBEDDED_SETTINGS,
+                EmbeddedConfigEditor.actionForQwerty(config, "l"));
+        assertEquals(Config.ACTION_DISABLE, EmbeddedConfigEditor.actionForQwerty(config, "b"));
         assertEquals(Config.ACTION_NONE, EmbeddedConfigEditor.actionForQwerty(config, "q"));
     }
 
