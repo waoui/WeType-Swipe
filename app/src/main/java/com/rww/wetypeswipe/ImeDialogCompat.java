@@ -31,7 +31,10 @@ final class ImeDialogCompat {
             return null;
         }
         Window window = ime.getWindow().getWindow();
-        IBinder token = window.getDecorView().getWindowToken();
-        return token == null ? window.getAttributes().token : token;
+        // The IME window attributes carry the InputMethodService's service token.
+        // The decor view's window token identifies the displayed keyboard window,
+        // which is NOT interchangeable for TYPE_INPUT_METHOD_DIALOG on some ROMs.
+        IBinder serviceToken = window.getAttributes().token;
+        return serviceToken != null ? serviceToken : window.getDecorView().getWindowToken();
     }
 }
