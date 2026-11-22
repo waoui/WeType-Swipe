@@ -1,0 +1,30 @@
+name: 功能建议
+description: 申请新增按键动作、支持的键盘布局或体验优化
+title: "[建议] "
+labels: [enhancement, user-feedback]
+body:
+  - type: markdown
+    attributes:
+      value: "这里专门用于功能建议。下载和版本历史请到 Releases；如为现有功能失效，请选择“功能异常”模板。"
+  - type: textarea
+    id: situation
+    attributes:
+      label: 使用场景与当前问题
+      description: 说明当前操作方法、为什么影响使用，尽量附截图
+      placeholder: "例如：在 26 键中需要重复配置 10 个上滑动作……"
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 希望如何改进
+      description: 描述可观察、可验收的结果；可提供参考应用
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 设备、输入法版本和其他补充
+      placeholder: "Android / ROM / LSPosed / 微信输入法版本等"
+    validations:
+      required: false

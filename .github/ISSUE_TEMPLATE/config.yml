@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 下载正式 APK 和查看发布记录
+    url: https://github.com/waoui/WeType-Swipe/releases
+    about: 正式版本、APK、源码包和 SHA256 校验文件统一在 Releases 中；发布不会再创建 Issue。
+  - name: 先查看安装、配置及常见限制
+    url: https://github.com/waoui/WeType-Swipe#安装与使用
+    about: 升级、内置设置入口、配置备份及兼容性说明。
