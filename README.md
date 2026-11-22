@@ -101,7 +101,9 @@
 
 Windows 可使用 `gradlew.bat`。正式版签名存储在仓库受保护的 GitHub Actions Secrets 中，不在源码仓库内。
 
-正式发布流程：更新 `gradle.properties`、README、CHANGELOG、`RELEASE_NOTES_v*.md`；通过 PR CI 后合并 `main`；通过仓库受保护工作流构建并校验原永久签名 APK，发布 Release + 源码 ZIP + SHA256。
+正式发布流程：更新 `gradle.properties`、README、CHANGELOG、`RELEASE_NOTES_v*.md`；通过 PR CI 后合并 `main`；打开 **Actions → 构建并发布正式版 → Run workflow**（选择 `main`、输入不含 `v` 的版本号），由仓库受保护工作流验证原永久签名并发布 APK、源码 ZIP 和 SHA256。**不再创建发布 Issue 或发布触发 PR。**
+
+反馈请使用 [Issues](https://github.com/waoui/WeType-Swipe/issues) 中的缺陷或功能建议模板；旧发布触发记录已加 `release-automation` 标签，历史版本在 [Releases](https://github.com/waoui/WeType-Swipe/releases)。分类及筛选见 [Issues 整理说明](.github/ISSUE_GUIDE.md)。
 
 ## 许可
 
